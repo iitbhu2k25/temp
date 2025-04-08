@@ -131,7 +131,7 @@ const Navbar = (): JSX.Element => {
                       </Link>
                     </li>
                     <li>
-                      <Link href="" className="block px-4 py-2 text-blue-600 font-semibold hover:bg-blue-50 hover:bg-opacity-10 rounded-md transition duration-200">
+                      <Link href="/dss/ground_water" className="block px-4 py-2 text-blue-600 font-semibold hover:bg-blue-50 hover:bg-opacity-10 rounded-md transition duration-200">
                         GW Potential Zone
                       </Link>
                     </li>

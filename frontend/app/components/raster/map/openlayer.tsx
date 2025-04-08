@@ -1,291 +1,279 @@
-// 'use client';
-// import { useEffect, useRef, useState } from 'react';
-// import { useMapContext } from '@/app/contexts/MapContext';
-// import L from 'leaflet';
-// import 'leaflet/dist/leaflet.css';
-// // Import GeoRaster and GeoRasterLayer packages for handling GeoTIFFs directly in browser
-// import parseGeoraster from 'georaster';
-// import GeoRasterLayer from 'georaster-layer-for-leaflet';
+'use client';
+import { useEffect, useRef, useState } from 'react';
+import { useMapContext } from '@/app/contexts/MapContext';
 
-// // Define interfaces for the raster layer and pixel info
-// interface RasterLayerProps {
-//   id: string;
-//   visible: boolean;
-//   url?: string;
-//   opacity?: number;
-//   name?: string;
-//   extent?: [number, number, number, number]; // [minX, minY, maxX, maxY] in lon/lat
-// }
+// OpenLayers imports
+import Map from 'ol/Map';
+import View from 'ol/View';
+import TileLayer from 'ol/layer/Tile';
+import ImageLayer from 'ol/layer/Image';
+import OSM from 'ol/source/OSM';
+import ImageWMS from 'ol/source/ImageWMS';
+import GeoTIFF from 'ol/source/GeoTIFF';
+import { fromLonLat, toLonLat } from 'ol/proj';
+import { defaults as defaultControls } from 'ol/control';
+import 'ol/ol.css';
 
-// interface PixelInfoValue {
-//   coords: [number, number];
-//   value: number | null;
-//   loading: boolean;
-//   error?: string;
-// }
+// Define interfaces for the raster layer and pixel info
+interface RasterLayerProps {
+  id: string;
+  visible: boolean;
+  url?: string;
+  opacity?: number;
+  name?: string;
+  extent?: [number, number, number, number]; // [minX, minY, maxX, maxY] in lon/lat
+  type?: 'geotiff' | 'wms'; // Add type to distinguish between GeoTIFF and WMS
+  workspace?: string;      // Optional - for GeoServer workspace
+  layerName?: string;      // Optional - for GeoServer layer name
+}
 
-// const MapComponent = () => {
-//   const {
-//     selectedRasterLayers,
-//     pixelInfo,
-//     setPixelInfo
-//   } = useMapContext() as {
-//     selectedRasterLayers: RasterLayerProps[];
-//     pixelInfo: Record<string, PixelInfoValue>;
-//     setPixelInfo: (info: Record<string, PixelInfoValue>) => void;
-//   };
+interface PixelInfoValue {
+  coords: [number, number];
+  value: number | null;
+  loading: boolean;
+  error?: string;
+}
+
+const MapComponent = () => {
+  const {
+    selectedRasterLayers,
+    pixelInfo,
+    setPixelInfo
+  } = useMapContext() as {
+    selectedRasterLayers: RasterLayerProps[];
+    pixelInfo: Record<string, PixelInfoValue>;
+    setPixelInfo: (info: Record<string, PixelInfoValue>) => void;
+  };
   
-//   const mapRef = useRef<HTMLDivElement>(null);
-//   const [map, setMap] = useState<L.Map | null>(null);
-//   const leafletLayersRef = useRef<Record<string, L.Layer>>({});
-//   const georastersRef = useRef<Record<string, any>>({});
+  const mapRef = useRef<HTMLDivElement>(null);
+  const [map, setMap] = useState<Map | null>(null);
+  const layersRef = useRef<Record<string, TileLayer<any> | ImageLayer<any>>>({});
   
-//   // Fix Leaflet icon issues in Next.js
-//   useEffect(() => {
-//     // Only run on the client side
-//     if (typeof window !== 'undefined') {
-//       // Fix Leaflet's icon paths
-//       delete L.Icon.Default.prototype._getIconUrl;
-//       L.Icon.Default.mergeOptions({
-//         iconRetinaUrl: '/images/marker-icon-2x.png',
-//         iconUrl: '/images/marker-icon.png',
-//         shadowUrl: '/images/marker-shadow.png',
-//       });
-//     }
-//   }, []);
-  
-//   // Initialize map
-//   useEffect(() => {
-//     if (!mapRef.current || map) return;
+  // Initialize map
+  useEffect(() => {
+    if (!mapRef.current || map) return;
     
-//     // Initialize the Leaflet map
-//     const initialMap = L.map(mapRef.current).setView([20.5937, 78.9629], 5); // Center on India
+    // Initialize the OpenLayers map
+    const initialMap = new Map({
+      target: mapRef.current,
+      controls: defaultControls(),
+      layers: [
+        new TileLayer({
+          source: new OSM()
+        })
+      ],
+      view: new View({
+        center: fromLonLat([78.9629, 20.5937]), // Center on India
+        zoom: 5
+      })
+    });
     
-//     // Add OpenStreetMap base layer
-//     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-//       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-//     }).addTo(initialMap);
+    setMap(initialMap);
     
-//     setMap(initialMap);
-    
-//     // Handle map clicks to get pixel info
-//     initialMap.on('click', async (event) => {
-//       const { lat, lng } = event.latlng;
+    // Handle map clicks to get pixel info
+    initialMap.on('click', async (event) => {
+      const [lon, lat] = toLonLat(event.coordinate);
       
-//       // Process each visible georaster to get pixel information
-//       for (const [id, georaster] of Object.entries(georastersRef.current)) {
-//         if (map?.hasLayer(leafletLayersRef.current[id])) {
-//           try {
-//             setPixelInfo(prev => ({
-//               ...prev,
-//               [id]: {
-//                 coords: [lng, lat],
-//                 value: null,
-//                 loading: true
-//               }
-//             }));
+      // Process each visible layer to get pixel information
+      for (const layerId in layersRef.current) {
+        const layer = layersRef.current[layerId];
+        
+        if (layer.getVisible()) {
+          try {
+            setPixelInfo(prev => ({
+              ...prev,
+              [layerId]: {
+                coords: [lon, lat],
+                value: null,
+                loading: true
+              }
+            }));
             
-//             // Use the georaster to get the value at this point
-//             // Depending on the georaster implementation, this might look different
-//             // This is a simple example that assumes the georaster has a method to get values at lat/lng
-//             if (georaster && typeof georaster.valueAtLatLng === 'function') {
-//               const value = await georaster.valueAtLatLng(lat, lng);
+            const source = layer.getSource();
+            
+            // Handle WMS GetFeatureInfo
+            if (source instanceof ImageWMS) {
+              const viewResolution = initialMap.getView().getResolution();
+              const url = source.getFeatureInfoUrl(
+                event.coordinate, 
+                viewResolution || 1, 
+                'EPSG:3857',
+                {'INFO_FORMAT': 'application/json'}
+              );
               
-//               setPixelInfo(prev => ({
-//                 ...prev,
-//                 [id]: {
-//                   coords: [lng, lat],
-//                   value: Array.isArray(value) ? value[0] : value, // Some georasters return arrays for multi-band data
-//                   loading: false
-//                 }
-//               }));
-//             } else {
-//               // If no direct method, just log the coordinates
-//               console.log(`Clicked at coordinates [${lng}, ${lat}] for layer ${id}`);
+              if (url) {
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                // Extract value from GetFeatureInfo response
+                // This is simplified - you'll need to adapt to your actual GeoServer response format
+                const value = data.features?.[0]?.properties?.GRAY_INDEX;
+                
+                setPixelInfo(prev => ({
+                  ...prev,
+                  [layerId]: {
+                    coords: [lon, lat],
+                    value: value !== undefined ? value : null,
+                    loading: false
+                  }
+                }));
+              } else {
+                setPixelInfo(prev => ({
+                  ...prev,
+                  [layerId]: {
+                    coords: [lon, lat],
+                    value: null,
+                    loading: false,
+                    error: 'GetFeatureInfo not available'
+                  }
+                }));
+              }
+            } 
+            // Handle GeoTIFF sources
+            else if (source instanceof GeoTIFF) {
+              // Note: OpenLayers GeoTIFF handling is different from georaster
+              // This is a simplified example - you may need to adapt based on your needs
+              console.log(`Clicked at coordinates [${lon}, ${lat}] for layer ${layerId}`);
               
-//               setPixelInfo(prev => ({
-//                 ...prev,
-//                 [id]: {
-//                   coords: [lng, lat],
-//                   value: null,
-//                   loading: false,
-//                   error: 'Value extraction not supported for this layer'
-//                 }
-//               }));
-//             }
-//           } catch (error) {
-//             console.error(`Error getting value for layer ${id}:`, error);
-//             setPixelInfo(prev => ({
-//               ...prev,
-//               [id]: {
-//                 coords: [lng, lat],
-//                 value: null,
-//                 loading: false,
-//                 error: error instanceof Error ? error.message : 'Unknown error'
-//               }
-//             }));
-//           }
-//         }
-//       }
-//     });
+              setPixelInfo(prev => ({
+                ...prev,
+                [layerId]: {
+                  coords: [lon, lat],
+                  value: null, // Would need additional logic to extract value from GeoTIFF
+                  loading: false,
+                  error: 'Direct value extraction not implemented'
+                }
+              }));
+            } else {
+              setPixelInfo(prev => ({
+                ...prev,
+                [layerId]: {
+                  coords: [lon, lat],
+                  value: null,
+                  loading: false,
+                  error: 'Unsupported layer type for value extraction'
+                }
+              }));
+            }
+          } catch (error) {
+            console.error(`Error getting value for layer ${layerId}:`, error);
+            setPixelInfo(prev => ({
+              ...prev,
+              [layerId]: {
+                coords: [lon, lat],
+                value: null,
+                loading: false,
+                error: error instanceof Error ? error.message : 'Unknown error'
+              }
+            }));
+          }
+        }
+      }
+    });
     
-//     return () => {
-//       initialMap.remove();
-//     };
-//   }, [setPixelInfo]);
+    return () => {
+      initialMap.setTarget(undefined);
+    };
+  }, [setPixelInfo]);
   
-//   // Handle raster layers changes
-//   useEffect(() => {
-//     if (!map) return;
+  // Handle raster layers changes
+  useEffect(() => {
+    if (!map) return;
     
-//     // Remove layers that are no longer in the selected list
-//     Object.entries(leafletLayersRef.current).forEach(([id, layer]) => {
-//       if (!selectedRasterLayers.some(rasterLayer => rasterLayer.id === id)) {
-//         if (map.hasLayer(layer)) {
-//           map.removeLayer(layer);
-//         }
-//         delete leafletLayersRef.current[id];
-//         delete georastersRef.current[id];
-//       }
-//     });
+    // Remove layers that are no longer in the selected list
+    Object.entries(layersRef.current).forEach(([id, layer]) => {
+      if (!selectedRasterLayers.some(rasterLayer => rasterLayer.id === id)) {
+        map.removeLayer(layer);
+        delete layersRef.current[id];
+      }
+    });
     
-//     // Add or update layers based on the selected list
-//     selectedRasterLayers.forEach(rasterLayer => {
-//       // Update existing layer properties if it exists
-//       if (leafletLayersRef.current[rasterLayer.id]) {
-//         const layer = leafletLayersRef.current[rasterLayer.id];
+    // Add or update layers based on the selected list
+    selectedRasterLayers.forEach(rasterLayer => {
+      // Update existing layer properties if it exists
+      if (layersRef.current[rasterLayer.id]) {
+        const layer = layersRef.current[rasterLayer.id];
         
-//         // Update visibility
-//         if (rasterLayer.visible) {
-//           if (!map.hasLayer(layer)) {
-//             map.addLayer(layer);
-//           }
-//         } else {
-//           if (map.hasLayer(layer)) {
-//             map.removeLayer(layer);
-//           }
-//         }
+        // Update visibility
+        layer.setVisible(rasterLayer.visible);
         
-//         // Update opacity if layer has the setOpacity method
-//         if ('setOpacity' in layer && typeof (layer as any).setOpacity === 'function') {
-//           (layer as any).setOpacity(rasterLayer.opacity ?? 1.0);
-//         }
-//       } 
-//       // Create new layer if it doesn't exist yet
-//       else if (rasterLayer.url) {
-//         // Create a loading marker to show while the GeoTIFF is loading
-//         const loadingMarker = L.marker(map.getCenter(), {
-//           icon: L.divIcon({
-//             html: `<div style="background-color: rgba(255,255,255,0.8); padding: 5px; border-radius: 4px; font-weight: bold;">Loading ${rasterLayer.name || rasterLayer.id}...</div>`,
-//             className: ''
-//           })
-//         }).addTo(map);
+        // Update opacity
+        layer.setOpacity(rasterLayer.opacity ?? 1.0);
+      } 
+      // Create new layer if it doesn't exist yet
+      else if (rasterLayer.url) {
+        let layer;
         
-//         // Direct fetch and display of GeoTIFF using georaster and georaster-layer-for-leaflet
-//         fetch(rasterLayer.url)
-//           .then(response => {
-//             if (!response.ok) {
-//               throw new Error(`Failed to fetch GeoTIFF: ${response.status}`);
-//             }
-//             return response.arrayBuffer();
-//           })
-//           .then(arrayBuffer => {
-//             // Parse the GeoTIFF using georaster
-//             return parseGeoraster(arrayBuffer);
-//           })
-//           .then(georaster => {
-//             // Store the georaster reference for pixel queries
-//             georastersRef.current[rasterLayer.id] = georaster;
+        // Different handling based on layer type
+        if (rasterLayer.type === 'wms' || rasterLayer.url.includes('geoserver')) {
+          // Create WMS layer for GeoServer
+          const workspace = rasterLayer.workspace || '';
+          const layerName = rasterLayer.layerName || rasterLayer.id;
+          
+          // If workspace is provided, use it in the layer name
+          const fullLayerName = workspace ? `${workspace}:${layerName}` : layerName;
+          
+          layer = new ImageLayer({
+            source: new ImageWMS({
+              url: rasterLayer.url,
+              params: {
+                'LAYERS': fullLayerName,
+                'TILED': true,
+                'FORMAT': 'image/png'
+              },
+              ratio: 1,
+              serverType: 'geoserver'
+            }),
+            visible: rasterLayer.visible,
+            opacity: rasterLayer.opacity ?? 1.0
+          });
+          
+          console.log(`Created WMS layer for ${rasterLayer.id} connecting to GeoServer at ${rasterLayer.url}`);
+        } else {
+          // For GeoTIFF files
+          try {
+            // Convert extent from lon/lat to Web Mercator if provided
+            let extent;
+            if (rasterLayer.extent) {
+              const lowerLeft = fromLonLat([rasterLayer.extent[0], rasterLayer.extent[1]]);
+              const upperRight = fromLonLat([rasterLayer.extent[2], rasterLayer.extent[3]]);
+              extent = [lowerLeft[0], lowerLeft[1], upperRight[0], upperRight[1]];
+            }
             
-//             // Create a GeoRasterLayer from the parsed georaster
-//             const geoRasterLayer = new GeoRasterLayer({
-//               georaster,
-//               opacity: rasterLayer.opacity ?? 1.0,
-//               resolution: 256 // Optional: control the resolution
-//             });
+            // Use the GeoTIFF source
+            layer = new ImageLayer({
+              source: new GeoTIFF({
+                sources: [{
+                  url: rasterLayer.url
+                }]
+              }),
+              visible: rasterLayer.visible,
+              opacity: rasterLayer.opacity ?? 1.0
+            });
             
-//             // Store the layer reference
-//             leafletLayersRef.current[rasterLayer.id] = geoRasterLayer;
-            
-//             // Remove loading marker
-//             map.removeLayer(loadingMarker);
-            
-//             // Add layer to map if it should be visible
-//             if (rasterLayer.visible) {
-//               geoRasterLayer.addTo(map);
-//             }
-            
-//             // If this is the first layer added, fit the map to its bounds
-//             if (Object.keys(leafletLayersRef.current).length === 1) {
-//               try {
-//                 const bounds = geoRasterLayer.getBounds();
-//                 if (bounds) {
-//                   map.fitBounds(bounds);
-//                 }
-//               } catch (e) {
-//                 console.warn('Could not fit to layer bounds:', e);
-//               }
-//             }
-            
-//             console.log(`Successfully added GeoTIFF layer: ${rasterLayer.id}`);
-//           })
-//           .catch(error => {
-//             console.error(`Error loading GeoTIFF for ${rasterLayer.id}:`, error);
-//             map.removeLayer(loadingMarker);
-            
-//             // If we have extent information, create a fallback rectangle
-//             if (rasterLayer.extent) {
-//               const bounds = L.latLngBounds(
-//                 [rasterLayer.extent[1], rasterLayer.extent[0]], // SW corner
-//                 [rasterLayer.extent[3], rasterLayer.extent[2]]  // NE corner
-//               );
-              
-//               const fallbackLayer = L.rectangle(bounds, {
-//                 color: '#ff7800',
-//                 weight: 1,
-//                 opacity: 0.8,
-//                 fillOpacity: 0.3,
-//                 fillColor: '#ffcc33'
-//               });
-              
-//               fallbackLayer.bindTooltip(`${rasterLayer.name || rasterLayer.id} (failed to load)`);
-              
-//               // Store the layer reference
-//               leafletLayersRef.current[rasterLayer.id] = fallbackLayer;
-              
-//               // Add to map if it should be visible
-//               if (rasterLayer.visible) {
-//                 fallbackLayer.addTo(map);
-//               }
-//             } else {
-//               // If no extent info, just show an error marker at the center
-//               const errorMarker = L.marker(map.getCenter(), {
-//                 icon: L.divIcon({
-//                   html: `<div style="background-color: rgba(255,0,0,0.7); color: white; padding: 5px; border-radius: 4px;">Failed to load ${rasterLayer.name || rasterLayer.id}</div>`,
-//                   className: ''
-//                 })
-//               });
-              
-//               // Store the marker as the layer reference
-//               leafletLayersRef.current[rasterLayer.id] = errorMarker;
-              
-//               // Add to map if it should be visible
-//               if (rasterLayer.visible) {
-//                 errorMarker.addTo(map);
-//               }
-//             }
-//           });
-//       }
-//     });
-//   }, [map, selectedRasterLayers]);
+            console.log(`Created GeoTIFF layer for ${rasterLayer.id}`);
+          } catch (error) {
+            console.error(`Error creating GeoTIFF layer for ${rasterLayer.id}:`, error);
+            return; // Skip this layer
+          }
+        }
+        
+        // Store the layer reference
+        layersRef.current[rasterLayer.id] = layer;
+        
+        // Add layer to map
+        map.addLayer(layer);
+      }
+    });
+  }, [map, selectedRasterLayers]);
   
-//   return (
-//     <div 
-//       ref={mapRef} 
-//       className="w-full h-full border rounded-lg shadow-sm"
-//       style={{ minHeight: '500px' }}
-//     />
-//   );
-// };
+  return (
+    <div 
+      ref={mapRef} 
+      className="w-full h-full border rounded-lg shadow-sm"
+      style={{ minHeight: '500px' }}
+    />
+  );
+};
 
-// export default MapComponent;
+export default MapComponent;
