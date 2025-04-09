@@ -7,6 +7,8 @@ from django.conf import settings
 import os
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
+from GWM.service import create_workspace,publish_geotiff
+import time
 
 class rasters_get(APIView):
     def get(self,request,format=None):
@@ -21,7 +23,6 @@ class rasters_get(APIView):
         resp=map(lambda x:{"id":x[0],"name":x[1]},resp)
         return Response(resp,status=status.HTTP_200_OK)
     
-@method_decorator(csrf_exempt, name='dispatch')
 class rasters_file(APIView):
     def get(self, request, id, format=None):
         try:
@@ -30,33 +31,24 @@ class rasters_file(APIView):
                 raise Http404("Raster file not found")
             
             file_path = result['file_location']
-            BASE_DIR = os.path.join(settings.BASE_DIR, 'media', file_path)
+            file_path = os.path.join(settings.BASE_DIR, 'media', file_path)
             
-            print(f"Attempting to serve file from: {BASE_DIR}")
-            print(f"File exists: {os.path.exists(BASE_DIR)}")
+            print(f"Attempting to serve file from: {file_path}")
+            print(f"File exists: {os.path.exists(file_path)}")
             
-            if not os.path.exists(BASE_DIR):
-                return Response({"error": f"File does not exist at path: {BASE_DIR}"}, 
+            if not os.path.exists(file_path):
+                return Response({"error": f"File does not exist at path: {file_path}"}, 
                                status=status.HTTP_404_NOT_FOUND)
             
-            # Set correct content type for GeoTIFF
-            response = FileResponse(
-                open(BASE_DIR, 'rb'),
-                content_type='image/tiff'
-            )
-            
-            # Add CORS headers
-            response["Access-Control-Allow-Origin"] = "*"
-            response["Access-Control-Allow-Methods"] = "GET, OPTIONS"
-            response["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-            
-            # Add cache control headers to prevent caching issues
-            response["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            response["Pragma"] = "no-cache"
-            response["Expires"] = "0"
-            
-            return response
-            
+            workspace_name='GWM'
+            resp=create_workspace(workspace_name)
+            print("resp",resp)
+            store_name = f"raster_{int(time.time())}"
+            if resp:
+                print("workspace created")    
+                new_resp=publish_geotiff(workspace_name,store_name,file_path)
+                print(new_resp)
+
         except Exception as e:
             print(f"Error serving raster file: {str(e)}")
             import traceback

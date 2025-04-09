@@ -31,6 +31,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "Basic",
     "raster_visual",
+    "GWM"
 ]
 
 MIDDLEWARE = [
@@ -142,3 +143,8 @@ CORS_ALLOW_HEADERS = [
     "x-csrftoken",
     "x-requested-with",
 ]
+
+GEOSERVER_URL=os.environ.get('GEOSERVER_URL')
+GEOSERVER_WORKSPACE=os.environ.get('GEOSERVER_WORKSPACE')
+GEOSERVER_USERNAME=os.environ.get('GEOSERVER_USERNAME')
+GEOSERVER_PASSWORD=os.environ.get('GEOSERVER_PASSWORD')

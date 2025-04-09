@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="RasterVisual",
+            name="Geoserver_data",
             fields=[
                 (
                     "id",
@@ -22,9 +22,12 @@ class Migration(migrations.Migration):
                         verbose_name="ID",
                     ),
                 ),
-                ("organisation", models.CharField(max_length=100)),
-                ("name", models.CharField(max_length=100)),
-                ("file_location", models.FileField(upload_to="raster/")),
+                (
+                    "unique_name",
+                    models.CharField(max_length=100, null=True, unique=True),
+                ),
+                ("geo_publish", models.BooleanField(default=False)),
+                ("raster_visual_id", models.IntegerField()),
             ],
         ),
     ]
