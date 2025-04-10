@@ -10,6 +10,7 @@ from django.utils.decorators import method_decorator
 from GWM.service import create_workspace,publish_geotiff
 import time
 
+
 class rasters_get(APIView):
     def get(self,request,format=None):
         raster_objects = RasterVisual.objects.values_list('organisation', flat=True).distinct()
@@ -47,7 +48,9 @@ class rasters_file(APIView):
             if resp:
                 print("workspace created")    
                 new_resp=publish_geotiff(workspace_name,store_name,file_path)
-                print(new_resp)
+                if new_resp:
+                    print("geotiff published")
+                    return Response(new_resp,status=status.HTTP_200_OK)
 
         except Exception as e:
             print(f"Error serving raster file: {str(e)}")

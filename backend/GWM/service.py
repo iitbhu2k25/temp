@@ -41,46 +41,59 @@ def create_workspace(workspace_name):
         return False
     
 
-def publish_geotiff(workspace_name, store_name, geotiff_path, layer_name=None):
-    if not layer_name:
-        layer_name = store_name
+def publish_geotiff(workspace_name, store_name, geotiff_path):
+    # Upload the file directly (this will auto-create a layer)
+    upload_url = f"{geoserver_url}/rest/workspaces/{workspace_name}/coveragestores/{store_name}/file.geotiff"
     
-    # Create a new coveragestore
-    coveragestore_url = f"{geoserver_url}/rest/workspaces/{workspace_name}/coveragestores"
-    headers = {"Content-type": "application/json"}
-    data = {
-        "coverageStore": {
-            "name": store_name,
-            "type": "GeoTIFF",
-            "enabled": True,
-            "url": f"file:{geotiff_path}"
-        }
-    }
-    
-    response = requests.post(
-        coveragestore_url,
-        auth=HTTPBasicAuth(username, password),
-        json=data,
-        headers=headers
-    )
-    
-    if response.status_code == 201:
-        # Publish the layer
-        layer_url = f"{geoserver_url}/rest/workspaces/{workspace_name}/coveragestores/{store_name}/coverages"
-        layer_data = {
-            "coverage": {
-                "name": layer_name,
-                "enabled": True
-            }
-        }
-        
-        layer_response = requests.post(
-            layer_url,
+    with open(geotiff_path, 'rb') as file:
+        upload_headers = {'Content-type': 'image/tiff'}
+        response = requests.put(
+            upload_url,
             auth=HTTPBasicAuth(username, password),
-            json=layer_data,
-            headers=headers
+            data=file,
+            headers=upload_headers
+        )
+    
+    print(f"Upload response: {response.status_code}")
+    
+    if response.status_code in [200, 201]:
+        # Get information about the coveragestore to find the associated layer
+        coverage_info_url = f"{geoserver_url}/rest/workspaces/{workspace_name}/coveragestores/{store_name}/coverages.json"
+        
+        info_response = requests.get(
+            coverage_info_url,
+            auth=HTTPBasicAuth(username, password)
         )
         
-        return layer_response.status_code == 201
+        if info_response.status_code == 200:
+            coverages_data = info_response.json()
+            
+            # Extract coverage/layer names
+            if 'coverages' in coverages_data and 'coverage' in coverages_data['coverages']:
+                # Multiple coverages case
+                layer_names = [coverage['name'] for coverage in coverages_data['coverages']['coverage']]
+                print(f"Auto-created layer names: {layer_names}")
+                
+                # Usually there's just one layer per GeoTIFF
+                layer_name = layer_names[0] if layer_names else store_name
+                
+                return {
+                    "success": True,
+                    "store_name": store_name,
+                    "layer_name": layer_name,
+                    "all_layers": layer_names
+                }
+            else:
+                # If we can't get layer info, default to store name (common case)
+                print("No coverage information found, using store name as layer name")
+                return {
+                    "success": True,
+                    "store_name": store_name,
+                    "layer_name": store_name  # Usually layer name = store name for auto-created layers
+                }
     
-    return False
+    return {
+        "success": False,
+        "store_name": store_name,
+        "upload_status": response.status_code
+    }
