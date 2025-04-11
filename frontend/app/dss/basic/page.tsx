@@ -24,96 +24,119 @@ interface SelectedLocationData {
 
 const Basic: React.FC = () => {
   const [selectedLocationData, setSelectedLocationData] = useState<SelectedLocationData | null>(null);
-  const [count, setCount] = useState<Number[]>([0, 1, 2, 3]);
-  const [currentCount, setCurrentCount] = useState<Number | null>();
+  const [currentStep, setCurrentStep] = useState<number>(0);
+  const [transitionDirection, setTransitionDirection] = useState<'forward' | 'backward'>('forward');
+  const [skippedSteps, setSkippedSteps] = useState<number[]>([]);
+  const [completedSteps, setCompletedSteps] = useState<number[]>([]);
 
   const handleLocationConfirm = (data: SelectedLocationData): void => {
     console.log('Received confirmed location data:', data);
     setSelectedLocationData(data);
   };
 
-  const handleClick = () => {
-    if (currentCount == 1) {
-      setCurrentCount(2);
-    } else if (currentCount == 2) {
-      setCurrentCount(3);
+  const handleNext = () => {
+    if (currentStep < 3) {
+      setCompletedSteps(prev => [...prev.filter(step => step !== currentStep), currentStep]);
+      setSkippedSteps(prev => prev.filter(step => step !== currentStep));
+      setTransitionDirection('forward');
+      setCurrentStep(prev => prev + 1);
     }
-    
-  } 
+  };
+  
+
+  const handleSkip = () => {
+    if (currentStep > 0 && currentStep < 3) {
+      setSkippedSteps(prev => [...prev.filter(step => step !== currentStep), currentStep]);
+      setCompletedSteps(prev => prev.filter(step => step !== currentStep));
+      setTransitionDirection('forward');
+      setCurrentStep(prev => prev + 1);
+    }
+  };
+
+  const handleStepChange = (newStep: number) => {
+    if (newStep < currentStep) {
+      setTransitionDirection('backward');
+      setCurrentStep(newStep);
+    }
+  };
+
+  // Add a new handler for location reset
+  const handleLocationReset = (): void => {
+    setCurrentStep(0);
+    setSkippedSteps([]);
+    setCompletedSteps([]);
+    setSelectedLocationData(null);
+  };
 
   useEffect(() => {
     if (selectedLocationData) {
-      setCurrentCount(0);
+      setCurrentStep(0);
+      setSkippedSteps([]);
+      setCompletedSteps([]);
     }
   }, [selectedLocationData]);
 
   return (
     <div className="flex w-full min-h-0">
-      {/* Left side - Status Bar */}
       <div className="w-64 border-r border-gray-200">
-        <StatusBar />
+        <StatusBar 
+          currentStep={currentStep} 
+          onStepChange={handleStepChange}
+          skippedSteps={skippedSteps}
+        />
       </div>
 
-      {/* Right side - Main Content */}
       <div className="flex-1 p-4">
-        {/* Pass the onConfirm handler to LocationSelector */}
-        <LocationSelector onConfirm={handleLocationConfirm} />
+        <LocationSelector 
+          onConfirm={handleLocationConfirm} 
+          onReset={handleLocationReset} 
+        />
+        
 
-        {/* Only render Population when we have selected data */}
-        {(currentCount == 0 && selectedLocationData) && (
-          <Population
-            villages_props={selectedLocationData.villages}
-            subDistricts_props={selectedLocationData.subDistricts}
-            totalPopulation_props={selectedLocationData.totalPopulation}
-          />
-        )}
-        {
-          (currentCount == 1) && (
-            <Water_Supply />
-          )
-        }
-        {
-          (currentCount == 2) && (
+        {/* Step Content - keep all mounted */}
+        <div className="transition-all duration-300 transform">
+          <div className={currentStep === 0 ? 'block' : 'hidden'}>
+            {selectedLocationData && (
+              <Population
+                villages_props={selectedLocationData.villages}
+                subDistricts_props={selectedLocationData.subDistricts}
+                totalPopulation_props={selectedLocationData.totalPopulation}
+              />
+            )}
+          </div>
+
+          <div className={currentStep === 1 ? 'block' : 'hidden'}>
             <Water_Demand />
-          )
-        }
-        {
-          (currentCount == 3) && (
+          </div>
+
+          <div className={currentStep === 2 ? 'block' : 'hidden'}>
+            <Water_Supply />
+          </div>
+
+          <div className={currentStep === 3 ? 'block' : 'hidden'}>
             <Sewage />
-          )
-        }
-        <div className="mt-6 flex justify-between">
-          <button
-            className={`${currentCount == 0 ? "bg-gray-600 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"} text-white font-medium py-2 px-4 rounded-md transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50`}
-            disabled={currentCount == 0}
-            onClick={handleClick}
-          >
-            Skip
-          </button>
-          <button
-            className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
-            // disabled={
-            //     (inputMode === 'single' && (single_year === null || single_year < 2011 || single_year > 2099)) || 
-            //     (inputMode === 'range' && (range_year_start === null || range_year_end === null || 
-            //                             range_year_start < 2011 || range_year_start > 2099 ||
-            //                             range_year_end < 2011 || range_year_end > 2099 ||
-            //                             error !== null)) ||
-            //     inputMode === null ||
-            //     !isMethodSelected
-            // }
-            onClick={() => {
-              if (currentCount == 0) {
-                setCurrentCount(1);
-              } else if (currentCount == 1) {
-                setCurrentCount(2);
-              } else if (currentCount == 2) {
-                setCurrentCount(3)
-              }
-            }}
-          >
-            Save and Next
-          </button>
+          </div>
         </div>
+
+        {/* Navigation buttons */}
+        {selectedLocationData && (
+          <div className="mt-6 flex justify-between">
+            <button
+              className={`${currentStep === 0 ? "bg-gray-600 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"} text-white font-medium py-2 px-4 rounded-md transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50`}
+              disabled={currentStep === 0}
+              onClick={handleSkip}
+            >
+              Skip
+            </button>
+            <button
+              className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 mr-20 rounded-md transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
+              onClick={handleNext}
+              disabled={currentStep === 3}
+            >
+              {currentStep === 3 ? "Finish" : "Save and Next"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

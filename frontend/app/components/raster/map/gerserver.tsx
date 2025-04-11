@@ -48,7 +48,7 @@ const GeoServerMapComponent = () => {
       source: new TileWMS({
         url: GEOSERVER_URL,
         params: {
-          'LAYERS': `${WORKSPACE}:post_2011`, // Format: workspace:layer
+          'LAYERS': `${WORKSPACE}:Raster_1GB`, // Format: workspace:layer
           'TILED': true,
           'FORMAT': 'image/png',
           'TRANSPARENT': true,
@@ -73,7 +73,7 @@ const GeoServerMapComponent = () => {
       source: new ImageWMS({
         url: GEOSERVER_URL,
         params: {
-          'LAYERS': `${WORKSPACE}:post_2011`,
+          'LAYERS': `${WORKSPACE}:Raster_1GB`,
           'FORMAT': 'image/png',
           'TRANSPARENT': true,
           'VERSION': '1.1.1',

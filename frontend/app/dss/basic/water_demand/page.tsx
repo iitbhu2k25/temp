@@ -1,13 +1,17 @@
-"use client"
-import React from "react"
+'use client'
+import React, { useState } from 'react';
+import WaterDemandForm from './components/WaterDemandForm';
+// Import other components similarly
 
-const Water_Demand: React.FC = () => {
-    return (
-        <div>
-            water demand
-        </div>
-    )
-}
+const WaterDemandPage = () => {
+  const [currentStage, setCurrentStage] = useState<'population' | 'water_demand' | 'water_supply' | 'sewage'>('water_demand');
 
+  return (
+    <div className="container p-4 mt-5 bg-white rounded-lg shadow-md">
 
-export default Water_Demand
+      {currentStage === 'water_demand' && <WaterDemandForm />}
+    </div>
+  );
+};
+
+export default WaterDemandPage;

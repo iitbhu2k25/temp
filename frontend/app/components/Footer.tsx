@@ -72,7 +72,16 @@ export default function Footer() {
                 style={{ objectFit: "contain" }}
               />
             </div>
-
+            <div className="relative w-32 h-16">
+              <Image
+                src="/images/footer/iit_delhi_logo.png"
+                alt="Company Seal"
+                fill
+                sizes="100%"
+                style={{ objectFit: "contain" }}
+              />
+            </div>
+            
             <div className="relative w-32 h-16">
               <Image
                 src="/images/footer/IIT_Madras_Logo.svg.png"

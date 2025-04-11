@@ -1,29 +1,34 @@
 'use client'
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useCallback } from "react"
 
 import TimeMethods from "./components/timeseries";
-import DemographicMethods from "./components/demographic";
+import DemographicPopulation, { DemographicData } from "./components/demographic";
+import dynamic from "next/dynamic";
+
+const PopulationChart = dynamic(() => import("./components/PopulationChart"), { ssr: false })
 interface Village {
     id: number;
     name: string;
     subDistrictId: number;
     population: number;
-  }
-  
-  interface SubDistrict {
+}
+
+interface SubDistrict {
     id: number;
     name: string;
     districtId: number;
-  }
-  interface PopulationProps {
+}
+interface PopulationProps {
     villages_props: Village[];
     subDistricts_props: SubDistrict[];
     totalPopulation_props: number;
-  }
+    demographicData?: DemographicData; // New prop to receive demographic data
+}
 const Population: React.FC<PopulationProps> = ({
     villages_props,
     subDistricts_props,
-    totalPopulation_props
+    totalPopulation_props,
+    demographicData
 }) => {
     const [single_year, setSingleYear] = useState<number | null>(null);
     const [range_year_start, setRangeYearStart] = useState<number | null>(null);
@@ -37,7 +42,15 @@ const Population: React.FC<PopulationProps> = ({
         cohort: false
     });
     // Add state for results
-    const [results, setResults] = useState<any[] | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [results, setResults] = useState<any | null>(null);
+    const [selectedMethod, setSelectedMethodd] = useState<string>("");
+    const [localDemographicData, setLocalDemographicData] = useState<DemographicData>(demographicData || {
+        annualBirthRate: "",
+        annualDeathRate: "",
+        annualEmigrationRate: "",
+        annualImmigrationRate: ""
+    });
 
     // Update input mode when user interacts with fields
     useEffect(() => {
@@ -48,8 +61,8 @@ const Population: React.FC<PopulationProps> = ({
                 setRangeYearStart(null);
                 setRangeYearEnd(null);
             }
-        } else if ((range_year_start !== null && range_year_start > 0) || 
-                  (range_year_end !== null && range_year_end > 0)) {
+        } else if ((range_year_start !== null && range_year_start > 0) ||
+            (range_year_end !== null && range_year_end > 0)) {
             setInputMode('range');
             // Clear single year input if range is used
             if (single_year !== null) {
@@ -70,14 +83,14 @@ const Population: React.FC<PopulationProps> = ({
             } else {
                 setError(null);
             }
-        } 
+        }
         // Validate range years
         else if (inputMode === 'range') {
             if (range_year_start !== null && (range_year_start < 2011 || range_year_start > 2099)) {
                 setError('Start year must be between 2011 and 2099');
             } else if (range_year_end !== null && (range_year_end < 2011 || range_year_end > 2099)) {
                 setError('End year must be between 2011 and 2099');
-            } else if (range_year_start !== null && range_year_end !== null && 
+            } else if (range_year_start !== null && range_year_end !== null &&
                 range_year_start >= range_year_end) {
                 setError('End year must be greater than start year');
             } else {
@@ -91,13 +104,13 @@ const Population: React.FC<PopulationProps> = ({
     // Handle single year input with validation
     const handleSingleYearChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const inputValue = e.target.value;
-        
+
         // Allow empty input
         if (inputValue === '') {
             setSingleYear(null);
             return;
         }
-        
+
         // Allow any input while typing, but enforce range on blur
         setSingleYear(parseInt(inputValue));
     };
@@ -105,13 +118,13 @@ const Population: React.FC<PopulationProps> = ({
     // Handle range start year input with validation
     const handleRangeStartChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const inputValue = e.target.value;
-        
+
         // Allow empty input
         if (inputValue === '') {
             setRangeYearStart(null);
             return;
         }
-        
+
         // Allow any input while typing, but enforce range on blur
         setRangeYearStart(parseInt(inputValue));
     };
@@ -119,13 +132,13 @@ const Population: React.FC<PopulationProps> = ({
     // Handle range end year input with validation
     const handleRangeEndChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const inputValue = e.target.value;
-        
+
         // Allow empty input
         if (inputValue === '') {
             setRangeYearEnd(null);
             return;
         }
-        
+
         // Allow any input while typing, but enforce range on blur
         setRangeYearEnd(parseInt(inputValue));
     };
@@ -137,60 +150,199 @@ const Population: React.FC<PopulationProps> = ({
             [method]: !methods[method]
         });
     };
+    const handleLocalDemographicDataChange = useCallback((data) => {
+        console.log("Local demographic data updated:", data);
+        setLocalDemographicData(data);
+    }, []);
 
     // Check if at least one method is selected
     const isMethodSelected = methods.timeseries || methods.demographic || methods.cohort;
+    useEffect(() => {
+        if (results && selectedMethod) {
+            (window as any).selectedPopulationForecast = results[selectedMethod];
+            console.log("Updated selectedPopulationForecast:", (window as any).selectedPopulationForecast);
+        }
+    }, [selectedMethod, results]);
+
 
     // Handle form submission - in a real app, you would make an API call here
     const handleSubmit = async () => {
-        console.log('starts')
-        const resp = await fetch('http://localhost:9000/api/basic/time_series/arthemitic/',
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    "start_year": range_year_start,
-                    "end_year": range_year_end,
-                    "year": single_year,
-                    "villages_props":villages_props,
-                    "subdistrict_props":subDistricts_props,
-                    "totalPopulation_props":totalPopulation_props                    
-                })
+        setLoading(true);
+        try {
+            console.log("methods", methods);
+            if (!isMethodSelected) {
+                setError('Please select at least one method');
+                return;
             }
-        );
-        const res = await resp.json();
-        console.log(res);
 
-        // Mock data for demonstration purposes
-        // const mockYears = inputMode === 'single' 
-        //     ? [single_year!] 
-        //     : Array.from({length: (range_year_end! - range_year_start!) + 1}, (_, i) => range_year_start! + i);
-        
-        // const mockResults = mockYears.map(year => {
-        //     // Sample calculation logic (would be replaced by backend response)
-        //     const basePopulation = 1000000;
-        //     const yearsSince2011 = year - 2011;
-        //     const growthRate = 1.5 - (yearsSince2011 * 0.02);
-        //     const population = basePopulation * Math.pow(1 + (growthRate / 100), yearsSince2011);
-            
-        //     return {
-        //         year,
-        //         population: Math.round(population),
-        //         growthRate: growthRate.toFixed(2),
-        //         methods: Object.keys(methods).filter(m => methods[m as keyof typeof methods])
-        //     };
-        // });
-        
-        //setResults(mockResults);
-        console.log('endsd')
+            let requests = [];
+            let requestTypes = []; // Track which request is which type
+
+            if (methods.timeseries) {
+                requests.push(
+                    fetch('http://localhost:9000/api/basic/time_series/arthemitic/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            "start_year": range_year_start,
+                            "end_year": range_year_end,
+                            "year": single_year,
+                            "villages_props": villages_props,
+                            "subdistrict_props": subDistricts_props,
+                            "totalPopulation_props": totalPopulation_props
+                        })
+                    }).then(response => {
+                        if (!response.ok) throw new Error(`Timeseries API error: ${response.status}`);
+                        return response.json();
+                    })
+                );
+                requestTypes.push('timeseries');
+            }
+
+
+            if (methods.demographic) {
+                requests.push(
+                    fetch('http://localhost:9000/api/basic/time_series/demographic/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            "start_year": range_year_start,
+                            "end_year": range_year_end,
+                            "year": single_year,
+                            "villages_props": villages_props,
+                            "subdistrict_props": subDistricts_props,
+                            "totalPopulation_props": totalPopulation_props,
+                            "demographic": localDemographicData ? {
+                                "birthRate": localDemographicData.annualBirthRate === "" ? null : localDemographicData.annualBirthRate,
+                                "deathRate": localDemographicData.annualDeathRate === "" ? null : localDemographicData.annualDeathRate,
+                                "emigrationRate": localDemographicData.annualEmigrationRate === "" ? null : localDemographicData.annualEmigrationRate,
+                                "immigrationRate": localDemographicData.annualImmigrationRate === "" ? null : localDemographicData.annualImmigrationRate
+                            } : null
+                        })
+                    }).then(response => {
+                        if (!response.ok) throw new Error(`Demographic API error: ${response.status}`);
+                        return response.json();
+                    })
+                );
+                requestTypes.push('demographic');
+            }
+
+
+
+            if (requests.length > 0) {
+                try {
+                    const responses = await Promise.all(requests);
+
+                    let result: { [key: string]: any } = {}; // Initialize empty result with index signature
+
+                    // Process each response according to its request type
+                    responses.forEach((response, index) => {
+                        const requestType = requestTypes[index];
+
+                        if (requestType === 'timeseries') {
+                            // Spread timeseries results
+                            result = { ...result, ...response };
+                        }
+                        else if (requestType === 'demographic') {
+                            // For demographic data, make sure to access the population data correctly
+                            if (response.demographic) {
+                                result = { ...result, Demographic: response.demographic };
+                            }
+
+                            // If demographic response also contains population data
+                            if (response.population) {
+                                result = { ...result, ...response.population };
+                            }
+
+                            // If the demographic endpoint returns population forecasts directly
+                            const populationKeys = Object.keys(response).filter(key =>
+                                key !== 'demographic' && typeof response[key] === 'object');
+
+                            populationKeys.forEach(key => {
+                                result[key] = response[key];
+                            });
+                        }
+                    });
+
+                    console.log("Final Merged Result:", result);
+                    setResults(result);
+
+                    // Determine the default method with the highest total population
+                    let maxMethod = "";
+                    let maxPopulation = -Infinity;
+
+                    Object.keys(result).forEach((method) => {
+                        // Skip the Demographic key when calculating population
+                        if (method === 'Demographic') return;
+
+                        const methodData = result[method];
+                        // Check if method data is an object with population values
+                        if (methodData && typeof methodData === 'object') {
+                            const totalPop = Object.values(methodData).reduce((sum: number, val: number) => sum + val, 0);
+                            if (totalPop > maxPopulation) {
+                                maxPopulation = totalPop;
+                                maxMethod = method;
+                            }
+                        }
+                    });
+
+                    // If no population method was found but we have demographic data, use a fallback
+                    if (maxMethod === "" && result.Demographic) {
+                        // Look for any key that might contain population data
+                        const populationKeys = Object.keys(result).filter(key =>
+                            key !== 'Demographic' && typeof result[key] === 'object');
+
+                        if (populationKeys.length > 0) {
+                            maxMethod = populationKeys[0];
+                        }
+                    }
+
+                    const finalMethod = selectedMethod ? selectedMethod : maxMethod;
+                    setSelectedMethodd(finalMethod);
+                    console.log("Selected Method:", finalMethod);
+
+                    (window as any).selectedPopulationForecast = result[finalMethod]; // For debugging
+                    console.log("Selected Population Forecast:", (window as any).selectedPopulationForecast);
+
+                } catch (error) {
+                    console.error("Error fetching data:", error);
+                }
+                finally {
+                    setLoading(false)
+                }
+            } else {
+                console.warn("No method selected. Skipping API calls.");
+            }
+        } catch (error) {
+            console.error("Error fetching data:", error);
+            setError('Failed to fetch data. Please try again.');
+        }
     };
+
+    // Function to extract unique years from all models 
+    const getYears = (data: any) => {
+        if (!data) return [];
+        const allYears = new Set<number>();
+
+        Object.values(data).forEach((model: any) => {
+            Object.keys(model).forEach((year) => {
+                const yearNum = Number(year);
+                allYears.add(yearNum); // Exclude 2011
+            });
+        });
+
+        return Array.from(allYears).sort((a, b) => a - b);
+    };
+
 
     return (
         <div className="p-4 mt-5 bg-white rounded-lg shadow-md">
             <h1 className="text-2xl font-bold text-gray-800 mb-6">Population Estimation and Forecasting</h1>
-            
+
             <div className="mb-4">
                 <h2 className="text-lg font-semibold text-gray-700 mb-3">Select Design Year</h2>
                 <div className="bg-blue-50 p-4 mb-4 rounded-md text-sm text-blue-700">
@@ -207,12 +359,12 @@ const Population: React.FC<PopulationProps> = ({
                         <label className="block text-gray-700 font-medium mb-2" htmlFor="single-year">
                             Single Year
                         </label>
-                        <input 
+                        <input
                             id="single-year"
-                            type="number" 
+                            type="number"
                             className={`w-32 border rounded-md px-3 py-2 focus:outline-none focus:ring-2 
                                    ${inputMode === 'range' ? 'bg-gray-200 cursor-not-allowed' : 'focus:ring-blue-500 border-gray-300'}`}
-                            value={single_year === null ? '' : single_year} 
+                            value={single_year === null ? '' : single_year}
                             onChange={handleSingleYearChange}
                             placeholder="Year"
                             disabled={inputMode === 'range'}
@@ -220,20 +372,20 @@ const Population: React.FC<PopulationProps> = ({
                             max="2099"
                         />
                     </div>
-                    
+
                     <div className="mx-4 text-gray-500 self-center">OR</div>
-                    
+
                     {/* Range Start Year */}
                     <div className={`${inputMode === 'single' ? 'opacity-60' : ''}`}>
                         <label className="block text-gray-700 mb-2" htmlFor="range-start">
                             Start Year
                         </label>
-                        <input 
+                        <input
                             id="range-start"
-                            type="number" 
+                            type="number"
                             className={`w-32 border rounded-md px-3 py-2 focus:outline-none focus:ring-2 
                                       ${inputMode === 'single' ? 'bg-gray-200 cursor-not-allowed' : 'focus:ring-blue-500 border-gray-300'}`}
-                            value={range_year_start === null ? '' : range_year_start} 
+                            value={range_year_start === null ? '' : range_year_start}
                             onChange={handleRangeStartChange}
                             placeholder="Start"
                             disabled={inputMode === 'single'}
@@ -241,18 +393,18 @@ const Population: React.FC<PopulationProps> = ({
                             max="2099"
                         />
                     </div>
-                    
+
                     {/* Range End Year */}
                     <div className={`${inputMode === 'single' ? 'opacity-60' : ''}`}>
                         <label className="block text-gray-700 mb-2" htmlFor="range-end">
                             End Year
                         </label>
-                        <input 
+                        <input
                             id="range-end"
-                            type="number" 
+                            type="number"
                             className={`w-32 border rounded-md px-3 py-2 focus:outline-none focus:ring-2 
                                       ${inputMode === 'single' ? 'bg-gray-200 cursor-not-allowed' : 'focus:ring-blue-500 border-gray-300'}`}
-                            value={range_year_end === null ? '' : range_year_end} 
+                            value={range_year_end === null ? '' : range_year_end}
                             onChange={handleRangeEndChange}
                             placeholder="End"
                             disabled={inputMode === 'single'}
@@ -311,80 +463,96 @@ const Population: React.FC<PopulationProps> = ({
                 </div>
             )}
             {methods.demographic && (
-                 <div className="mb-4 p-4 rounded-md border border-gray-200">
-                 <h3 className="font-medium text-gray-700 mb-3">Demograhic  Analysis</h3>
-                 <DemographicMethods />
-             </div>
+                <div className="mb-4 p-4 rounded-md border border-gray-200">
+                    <h3 className="font-medium text-gray-700 mb-3">Demographic Analysis</h3>
+                    <DemographicPopulation
+                        onDataChange={handleLocalDemographicDataChange}
+                        initialData={demographicData} // Use the props data, not the local state!
+                    />
+                </div>
             )} {/* Add DemographicMethods component here.}
 
             {/* Submit Button */}
             <div className="mt-6">
-                <button 
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
+                <button
+                    className={`bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 flex items-center justify-center gap-2`}
                     disabled={
-                        (inputMode === 'single' && (single_year === null || single_year < 2011 || single_year > 2099)) || 
-                        (inputMode === 'range' && (range_year_start === null || range_year_end === null || 
-                                                range_year_start < 2011 || range_year_start > 2099 ||
-                                                range_year_end < 2011 || range_year_end > 2099 ||
-                                                error !== null)) ||
+                        loading || // Disable button when loading
+                        (inputMode === 'single' && (single_year === null || single_year < 2011 || single_year > 2099)) ||
+                        (inputMode === 'range' && (range_year_start === null || range_year_end === null ||
+                            range_year_start < 2011 || range_year_start > 2099 ||
+                            range_year_end < 2011 || range_year_end > 2099 ||
+                            error !== null)) ||
                         inputMode === null ||
                         !isMethodSelected
                     }
                     onClick={handleSubmit}
                 >
-                    Calculate
+                    {loading ? (
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                    ) : (
+                        "Calculate"
+                    )}
                 </button>
+
             </div>
 
             {/* Results Table */}
+
+
+
+            {/* Show Table */}
             {results && (
-                <div className="mt-8">
-                    <h2 className="text-lg font-semibold text-gray-700 mb-3">Population Forecasting Results</h2>
-                    <div className="overflow-x-auto">
-                        <table className="min-w-full bg-white border border-gray-200">
-                            <thead>
-                                <tr className="bg-gray-100 border-b">
-                                    <th className="py-2 px-4 text-left border-r">Year</th>
-                                    <th className="py-2 px-4 text-left border-r">Population</th>
-                                    <th className="py-2 px-4 text-left border-r">Growth Rate (%)</th>
-                                    <th className="py-2 px-4 text-left">Methods Used</th>
+                <div className="mt-6">
+                    <h2 className="text-lg font-semibold mb-4">Population Data</h2>
+
+                    {/* Scrollable Table Container */}
+                    <div className="table-container overflow-x-auto border border-gray-300 rounded-lg shadow-md">
+                        <table className="w-auto min-w-[500px] bg-white border-collapse table-auto">
+                            <thead className="bg-gray-200">
+                                <tr>
+                                    <th className="border px-4 py-2 w-24">Year</th>
+                                    {Object.keys(results).map((method) => (
+                                        <th key={method} className="border px-4 py-2">
+                                            <label className="flex items-center gap-2 justify-center">
+                                                <input
+                                                    type="radio"
+                                                    name="selectedMethod"
+                                                    value={method}
+                                                    checked={selectedMethod === method}
+                                                    onChange={() => setSelectedMethodd(method)}
+                                                />
+                                                {method}
+                                            </label>
+                                        </th>
+                                    ))}
                                 </tr>
                             </thead>
                             <tbody>
-                                {results.map((row, index) => (
-                                    <tr key={index} className="border-b hover:bg-gray-50">
-                                        <td className="py-2 px-4 border-r">{row.year}</td>
-                                        <td className="py-2 px-4 border-r">{row.population.toLocaleString()}</td>
-                                        <td className="py-2 px-4 border-r">{row.growthRate}%</td>
-                                        <td className="py-2 px-4">{row.methods.join(', ')}</td>
+                                {getYears(results).map((year) => (
+                                    <tr key={year} className="border-t">
+                                        <td className="border px-4 py-2 font-semibold">{year}</td>
+                                        {Object.keys(results).map((method) => (
+                                            <td key={`${method}-${year}`} className="border px-4 py-2 text-center">
+                                                {results[method][year] ?? "-"}
+                                            </td>
+                                        ))}
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
                     </div>
                 </div>
+
+
             )}
 
-            {/* Method Descriptions */}
-            {/* <div className="mt-8">
-                <h2 className="text-lg font-semibold text-gray-700 mb-3">Population Prediction Methods</h2>
-                <div className="bg-white rounded-md shadow-sm p-4 border border-gray-200">
-                    <h3 className="font-medium text-gray-700 mb-2">Method Descriptions</h3>
-                    <ul className="list-disc pl-5 space-y-2 text-gray-600">
-                        <li><span className="font-medium">Time Series:</span> Analyzes historical population data to project future trends.</li>
-                        <li><span className="font-medium">Demographic:</span> Takes into account birth rates, death rates, and migration patterns.</li>
-                        <li><span className="font-medium">Cohort:</span> Tracks groups of individuals born in the same time period as they age.</li>
-                    </ul>
-                </div>
-                
-                <div className="mt-4 bg-white rounded-md shadow-sm p-4 border border-gray-200">
-                    <h3 className="font-medium text-gray-700 mb-2">Growth Calculation</h3>
-                    <p className="text-gray-600">
-                        Population growth is calculated with respect to the base year 2011, showing percentage change over time.
-                    </p>
-                </div>
-            </div> */}
+            {/* Show Chart */}
+            
+            {results && <PopulationChart results={results} />}
+            
         </div>
+        
     )
 }
 
