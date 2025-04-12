@@ -71,16 +71,7 @@ const MapComponent = () => {
       for (const layerId in layersRef.current) {
         const layer = layersRef.current[layerId];
         
-        if (layer.getVisible()) {
-          setPixelInfo(prev => ({
-            ...prev,
-            [layerId]: {
-              coords: [lon, lat],
-              value: Math.random() * 100, // Dummy value for testing
-              loading: false
-            }
-          }));
-        }
+      
       }
     });
     
@@ -89,38 +80,6 @@ const MapComponent = () => {
     };
   }, [setPixelInfo]);
   
-  // Auto-load the default WMS layer when map is initialized
-  useEffect(() => {
-    if (!map) return;
-    
-    // Create default WMS layer on component mount
-    const defaultLayer = new ImageLayer({
-      source: new ImageWMS({
-        url: "http://localhost:9090/geoserver/GWM/wms",
-        params: {
-          'LAYERS': "raster_1744449072",
-          'TILED': true,
-          'FORMAT': 'image/png'
-        },
-        ratio: 1,
-        serverType: 'geoserver'
-      }),
-      visible: true,
-      opacity: 1.0
-    });
-    
-    // Generate a unique ID for this default layer
-    const defaultLayerId = 'default-wms-layer';
-    
-    // Store the layer reference
-    layersRef.current[defaultLayerId] = defaultLayer;
-    
-    // Add layer to map
-    map.addLayer(defaultLayer);
-    
-    console.log('Auto-loaded default WMS layer');
-    
-  }, [map]); // Only run when map is initialized
   
   // Handle raster layers changes from context
   useEffect(() => {
