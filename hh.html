@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Raster via GeoServer</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v7.3.0/ol.css">
+  <style>
+    html, body, #map { margin: 0; padding: 0; height: 100%; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script src="https://cdn.jsdelivr.net/npm/ol@v7.3.0/ol.js"></script>
+  <script>
+    import TileLayer from 'ol/layer/Tile';
+    import TileWMS from 'ol/source/TileWMS';
+    import { Map, View } from 'ol';
+    import { fromLonLat } from 'ol/proj';
+
+    const wmsLayer = new TileLayer({
+      source: new TileWMS({
+        url: 'http://localhost:9090/geoserver/GWM/wms',
+        params: {
+          'LAYERS': 'myworkspace:raster_layer',
+          'TILED': true,
+          'FORMAT': 'image/png',
+          'TRANSPARENT': true,
+        },
+        serverType: 'geoserver',
+      })
+    });
+
+    const map = new Map({
+      target: 'map',
+      layers: [wmsLayer],
+      view: new View({
+        center: fromLonLat([77.0, 28.5]), // Adjust based on your raster extent
+        zoom: 7
+      })
+    });
+  </script>
+</body>
+</html>

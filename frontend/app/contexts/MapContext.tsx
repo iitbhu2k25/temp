@@ -6,6 +6,7 @@ import TileLayer from 'ol/layer/Tile';
 import ImageLayer from 'ol/layer/Image';
 import OSM from 'ol/source/OSM';
 import GeoTIFF from 'ol/source/GeoTIFF';
+import ImageWMS from 'ol/source/ImageWMS';
 import { fromLonLat } from 'ol/proj';
 
 // Interface definitions
@@ -15,7 +16,11 @@ interface RasterLayerProps {
   url?: string;
   opacity?: number;
   name?: string;
-  extent?: [number, number, number, number]; // Added extent for georeferencing
+  extent?: [number, number, number, number];
+  type?: 'geotiff' | 'wms'; // Add type to distinguish between GeoTIFF and WMS
+  workspace?: string;      // For GeoServer workspace
+  layerName?: string;      // For GeoServer layer name
+  storeName?: string;      // For GeoServer store name
 }
 
 interface PixelInfoValue {
@@ -36,6 +41,20 @@ interface RasterFile {
   url?: string;
 }
 
+// New interface for processed raster with legends
+interface ProcessedRaster {
+  id: string;
+  name: string;
+  url?: string;
+  legendCount: number;
+  createdAt: string;
+  legends?: Array<{
+    value: number;
+    color: string;
+    label?: string;
+  }>;
+}
+
 interface MapContextType {
   // State
   organisations: Organisation[];
@@ -51,6 +70,12 @@ interface MapContextType {
   organisationDropdownOpen: boolean;
   rasterFileDropdownOpen: boolean;
   
+  // New state for legend generation
+  legendCount: number;
+  isProcessingLegends: boolean;
+  processedRaster: ProcessedRaster | null;
+  legendGenerationError: string | null;
+  
   // Functions
   setPixelInfo: (info: Record<string, PixelInfoValue>) => void;
   handleOrganisationSelect: (organisationName: string) => void;
@@ -62,6 +87,11 @@ interface MapContextType {
   setRasterFileDropdownOpen: (isOpen: boolean) => void;
   getOrganisationName: (id: string) => string;
   getRasterFileName: (id: string) => string;
+  
+  // New functions for legend generation
+  setLegendCount: (count: number) => void;
+  generateRasterLegends: () => Promise<void>;
+  resetProcessedRaster: () => void;
 }
 
 // Helper interfaces for managing OpenLayers references
@@ -105,6 +135,12 @@ export function MapProvider({ children }: MapProviderProps) {
   // Dropdown state
   const [organisationDropdownOpen, setOrganisationDropdownOpen] = useState<boolean>(false);
   const [rasterFileDropdownOpen, setRasterFileDropdownOpen] = useState<boolean>(false);
+  
+  // New state for legend generation
+  const [legendCount, setLegendCount] = useState<number>(5); // Default to 5 legends
+  const [isProcessingLegends, setIsProcessingLegends] = useState<boolean>(false);
+  const [processedRaster, setProcessedRaster] = useState<ProcessedRaster | null>(null);
+  const [legendGenerationError, setLegendGenerationError] = useState<string | null>(null);
 
   // Initialize the map
   useEffect(() => {
@@ -174,37 +210,63 @@ export function MapProvider({ children }: MapProviderProps) {
         olLayer.setVisible(layer.visible);
         olLayer.setOpacity(layer.opacity || 1.0);
       } else if (layer.url) {
-        // Create and add new layer
-        try {
-          // Create GeoTIFF source
-          const source = new GeoTIFF({
-            sources: [
-              {
-                url: layer.url
-              }
-            ]
-          });
-
-          // Create and add new layer
-          const newOlLayer = new ImageLayer({
-            source: source,
-            visible: layer.visible,
-            opacity: layer.opacity || 1.0
-          });
-
-          // Set extent if available
-          if (layer.extent) {
-            newOlLayer.setExtent(layer.extent);
-          }
-
-          // Add to map
-          map.addLayer(newOlLayer);
+        let newOlLayer;
+        
+        // Different handling based on layer type
+        if (layer.type === 'wms' || layer.layerName) {
+          // Create WMS layer for GeoServer
+          const workspace = layer.workspace || '';
+          const layerName = layer.layerName || layer.id;
           
-          // Store reference
-          mapRefs.current.layers[layer.id] = newOlLayer;
-        } catch (error) {
-          console.error(`Error creating layer ${layer.name}:`, error);
+          // If workspace is provided, use it in the layer name
+          const fullLayerName = workspace ? `${workspace}:${layerName}` : layerName;
+          
+          newOlLayer = new ImageLayer({
+            source: new ImageWMS({
+              url: layer.url,
+              params: {
+                'LAYERS': fullLayerName,
+                'TILED': true,
+                'FORMAT': 'image/png'
+              },
+              ratio: 1,
+              serverType: 'geoserver'
+            }),
+            visible: layer.visible,
+            opacity: layer.opacity ?? 1.0
+          });
+          
+          console.log(`Created WMS layer for ${layer.name} with layer ${fullLayerName} connecting to GeoServer at ${layer.url}`);
+        } else {
+          // For GeoTIFF files (fallback)
+          try {
+            newOlLayer = new ImageLayer({
+              source: new GeoTIFF({
+                sources: [{
+                  url: layer.url
+                }]
+              }),
+              visible: layer.visible,
+              opacity: layer.opacity || 1.0
+            });
+            
+            console.log(`Created GeoTIFF layer for ${layer.name}`);
+          } catch (error) {
+            console.error(`Error creating GeoTIFF layer for ${layer.name}:`, error);
+            return; // Skip this layer
+          }
         }
+        
+        // Set extent if available
+        if (layer.extent) {
+          newOlLayer.setExtent(layer.extent);
+        }
+        
+        // Add layer to map
+        map.addLayer(newOlLayer);
+        
+        // Store reference
+        mapRefs.current.layers[layer.id] = newOlLayer;
       }
     });
 
@@ -288,7 +350,17 @@ export function MapProvider({ children }: MapProviderProps) {
     };
 
     fetchRasterFiles();
+    
+    // Reset processed raster when organization changes
+    setProcessedRaster(null);
   }, [selectedOrganisation]);
+
+  // Reset processed raster when raster file changes
+  useEffect(() => {
+    if (selectedRasterFile) {
+      setProcessedRaster(null);
+    }
+  }, [selectedRasterFile]);
 
   // Handle Organisation selection
   const handleOrganisationSelect = (organisationId: string) => {
@@ -312,6 +384,7 @@ export function MapProvider({ children }: MapProviderProps) {
     setSelectedRasterLayers([]);
     setPixelInfo({});
     setOrganisationDropdownOpen(false);
+    setProcessedRaster(null);
   };
 
   // Handle raster file selection
@@ -325,29 +398,28 @@ export function MapProvider({ children }: MapProviderProps) {
     
     if (selectedFile) {
       try {
-        // Fetch detailed information including URL if not present
-        const rasterUrl = `http://localhost:9000/api/raster_visual/rasters/files/${rasterFileId}`;
+        const response = await fetch(`http://localhost:9000/api/raster_visual/rasters/files/${rasterFileId}`);
         
-        // Check if this layer is already loaded
-        const existingLayerIndex = selectedRasterLayers.findIndex(layer => layer.id === selectedFile.id);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch raster file: ${response.statusText}`);
+        }
         
-        if (existingLayerIndex >= 0) {
-          // If the layer exists, make it visible and hide others
-          const updatedLayers = selectedRasterLayers.map(layer => ({
-            ...layer,
-            visible: layer.id === selectedFile.id
-          }));
-          
-          setSelectedRasterLayers(updatedLayers);
-        } else {
-          // Create new raster layer with default extent for India
+        const data = await response.json();
+        console.log("Raster file data:", data);
+        
+        // Handle GeoServer response
+        if (data.success && data.layer_name) {
+          // Create a WMS layer for GeoServer
           const rasterLayer: RasterLayerProps = {
             id: selectedFile.id,
             name: selectedFile.name,
             visible: true,
-            url: rasterUrl,
             opacity: 1.0,
-            extent: [68.0, 6.0, 98.0, 36.0] // Default extent for India [minX, minY, maxX, maxY]
+            type: 'wms',
+            url: 'http://localhost:9090/geoserver/wms', // Adjust this URL to your GeoServer if needed
+            layerName: data.layer_name,
+            storeName: data.store_name,
+            workspace: 'GWM' // Adjust workspace as needed based on your GeoServer configuration
           };
 
           // Make all other layers invisible
@@ -358,11 +430,17 @@ export function MapProvider({ children }: MapProviderProps) {
 
           // Add this layer to existing layers
           setSelectedRasterLayers([...updatedLayers, rasterLayer]);
+        } else {
+          // Fallback to previous implementation for non-GeoServer responses
+          console.error('Invalid response format or GeoServer data not available');
         }
       } catch (error) {
         console.error('Error fetching raster details:', error);
       }
     }
+    
+    // Reset processed raster when selecting a new raster file
+    setProcessedRaster(null);
   };
 
   // Toggle raster layer visibility
@@ -437,6 +515,80 @@ export function MapProvider({ children }: MapProviderProps) {
     const file = rasterFiles.find(file => file.id === id);
     return file ? file.name : 'Select a raster file';
   };
+  
+  // New function to generate raster legends
+  const generateRasterLegends = async () => {
+    if (!selectedRasterFile || !selectedOrganisation) {
+      setLegendGenerationError('No raster file or organisation selected');
+      return;
+    }
+    
+    setIsProcessingLegends(true);
+    setLegendGenerationError(null);
+    
+    try {
+      // Call backend API to generate legends
+      const response = await fetch('http://localhost:9000/api/raster_visual/generate-legends', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          rasterId: selectedRasterFile,
+          organisationId: selectedOrganisation,
+          legendCount: legendCount
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to generate legends: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log('Generated legends response:', data);
+      
+      // Set the processed raster with generated legends
+      setProcessedRaster({
+        id: data.id || `processed-${Date.now()}`, // Use returned ID or generate temporary one
+        name: data.name || `${getRasterFileName(selectedRasterFile)} (Processed)`,
+        url: data.url,
+        legendCount: legendCount,
+        createdAt: data.createdAt || new Date().toISOString(),
+        legends: data.legends || []
+      });
+      
+      // If the response includes a new raster layer, add it to the map
+      if (data.url) {
+        const newRasterLayer: RasterLayerProps = {
+          id: data.id,
+          name: data.name || `${getRasterFileName(selectedRasterFile)} (Processed)`,
+          visible: true,
+          url: data.url,
+          opacity: 1.0,
+          extent: data.extent || [68.0, 6.0, 98.0, 36.0] // Use returned extent or default to India
+        };
+        
+        // Make all other layers invisible and add the new one
+        const updatedLayers = selectedRasterLayers.map(layer => ({
+          ...layer,
+          visible: false
+        }));
+        
+        setSelectedRasterLayers([...updatedLayers, newRasterLayer]);
+      }
+      
+    } catch (error) {
+      console.error('Error generating legends:', error);
+      setLegendGenerationError(error instanceof Error ? error.message : 'Failed to generate legends');
+    } finally {
+      setIsProcessingLegends(false);
+    }
+  };
+  
+  // Reset processed raster
+  const resetProcessedRaster = () => {
+    setProcessedRaster(null);
+  };
 
   // Creating the context value object
   const contextValue: MapContextType = {
@@ -454,6 +606,12 @@ export function MapProvider({ children }: MapProviderProps) {
     organisationDropdownOpen,
     rasterFileDropdownOpen,
     
+    // New state for legend generation
+    legendCount,
+    isProcessingLegends,
+    processedRaster,
+    legendGenerationError,
+    
     // Functions
     setPixelInfo,
     handleOrganisationSelect,
@@ -465,6 +623,11 @@ export function MapProvider({ children }: MapProviderProps) {
     setRasterFileDropdownOpen,
     getOrganisationName,
     getRasterFileName,
+    
+    // New functions for legend generation
+    setLegendCount,
+    generateRasterLegends,
+    resetProcessedRaster
   };
 
   return (

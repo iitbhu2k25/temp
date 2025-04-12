@@ -1,6 +1,6 @@
 'use client'
 import Sidebar from '@/app/components/raster/map/sidebar';
-import MapComponent from '@/app/components/raster/map/leaflet';
+import MapComponent from '@/app/components/raster/map/openlayer';
 import { MapProvider } from '@/app/contexts/MapContext';
 
 

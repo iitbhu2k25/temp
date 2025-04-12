@@ -9,7 +9,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from GWM.service import create_workspace,publish_geotiff
 import time
-
+import json
 
 class rasters_get(APIView):
     def get(self,request,format=None):
@@ -50,7 +50,9 @@ class rasters_file(APIView):
                 new_resp=publish_geotiff(workspace_name,store_name,file_path)
                 if new_resp:
                     print("geotiff published")
-                    return Response(new_resp,status=status.HTTP_200_OK)
+                    print(new_resp)
+                    return Response(json.loads(json.dumps(new_resp)), status=status.HTTP_200_OK)
+
 
         except Exception as e:
             print(f"Error serving raster file: {str(e)}")
