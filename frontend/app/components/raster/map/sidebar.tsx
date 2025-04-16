@@ -15,6 +15,7 @@ const Sidebar: React.FC = () => {
     organisationDropdownOpen,
     rasterFileDropdownOpen,
     organisations,
+    layerOpacity,
     rasterFiles,
     handleOrganisationSelect,
     handleRasterFileSelect,
@@ -22,6 +23,7 @@ const Sidebar: React.FC = () => {
     setRasterFileDropdownOpen,
     getOrganisationName,
     getRasterFileName,
+    setlayerOpacity,
     // New state and functions for legend generation
     legendCount,
     setLegendCount,
@@ -43,7 +45,7 @@ const Sidebar: React.FC = () => {
   }, [rasterFiles]);
 
   return (
-    <div className="w-100 bg-white shadow-md p-4 h-full flex flex-col">
+    <div className="w-100 bg-white shadow-md p-4 h-full w-full flex flex-col">
       <div className="mb-6">
         <h2 className="text-lg font-semibold mb-2 flex items-center">
           <Layers className="mr-2 h-5 w-5 text-blue-500" />
@@ -157,17 +159,33 @@ const Sidebar: React.FC = () => {
           {selectedRasterFile && !processedRaster && (
             <div className="mt-4 p-4 bg-blue-50 rounded-md border border-blue-100">
               <h3 className="text-sm font-semibold text-blue-800 mb-3">Generate Legends</h3>
-              
+              <div className="mb-3">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Opacity</label>
+                <div className="flex items-center">
+                  <span className="text-xs text-gray-500">0</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={layerOpacity}
+                    onChange={(e) => setlayerOpacity(parseInt(e.target.value))}
+                    className="w-full mx-2 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <span className="text-xs text-gray-500">100</span>
+                </div>
+                
+              </div>
               <div className="space-y-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Number of Legends
                   </label>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">1</span>
+                    <span className="text-xs text-gray-500">3</span>
                     <input
                       type="range"
-                      min="1"
+                      min="3"
                       max="10"
                       step="1"
                       value={legendCount}

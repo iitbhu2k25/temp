@@ -75,6 +75,7 @@ interface MapContextType {
   isProcessingLegends: boolean;
   processedRaster: ProcessedRaster | null;
   legendGenerationError: string | null;
+  layerOpacity: number;
   
   // Functions
   setPixelInfo: (info: Record<string, PixelInfoValue>) => void;
@@ -92,6 +93,8 @@ interface MapContextType {
   setLegendCount: (count: number) => void;
   generateRasterLegends: () => Promise<void>;
   resetProcessedRaster: () => void;
+  setlayerOpacity: (opacity: number) => void;
+  
 }
 
 // Helper interfaces for managing OpenLayers references
@@ -125,7 +128,7 @@ export function MapProvider({ children }: MapProviderProps) {
   const [selectedRasterFile, setSelectedRasterFile] = useState<string>('');
   const [currentRasterLayer, setCurrentRasterLayer] = useState<RasterLayerProps | null>(null);
   const [pixelInfo, setPixelInfo] = useState<Record<string, PixelInfoValue>>({});
-
+  const [layerOpacity, setlayerOpacity] = useState<number>(100);
   // UI state
   const [isOrganisationsLoading, setIsOrganisationsLoading] = useState<boolean>(true);
   const [isRasterFilesLoading, setIsRasterFilesLoading] = useState<boolean>(false);
@@ -193,7 +196,24 @@ export function MapProvider({ children }: MapProviderProps) {
       }
     };
   }, [currentRasterLayer]);
-
+  useEffect(() => {
+    if (currentRasterLayer && currentRasterLayer.id) {
+      const olLayer = mapRefs.current.layers[currentRasterLayer.id];
+      if (olLayer) {
+        // Convert from 0-100 scale to 0-1 scale for OpenLayers
+        olLayer.setOpacity(layerOpacity / 100);
+        
+        // Also update the currentRasterLayer state
+        setCurrentRasterLayer(prevLayer => {
+          if (!prevLayer) return null;
+          return {
+            ...prevLayer,
+            opacity: layerOpacity / 100 // Store the converted value
+          };
+        });
+      }
+    }
+  }, [layerOpacity]);
   // Sync current raster layer with OpenLayers when it changes
   useEffect(() => {
     const map = mapRefs.current.map;
@@ -217,6 +237,7 @@ export function MapProvider({ children }: MapProviderProps) {
       });
       return; // Exit early if no current layer
     }
+    
 
     const layer = currentRasterLayer;
     const olLayer = layer.id ? mapRefs.current.layers[layer.id] : null;
@@ -263,7 +284,7 @@ export function MapProvider({ children }: MapProviderProps) {
               }]
             }),
             visible: layer.visible,
-            opacity: layer.opacity || 1.0
+            opacity: (layerOpacity / 100)
           });
           
           console.log(`Created GeoTIFF layer for ${layer.name}`);
@@ -583,6 +604,7 @@ export function MapProvider({ children }: MapProviderProps) {
   const contextValue: MapContextType = {
     // State
     organisations,
+    layerOpacity,
     rasterFiles,
     selectedOrganisation,
     selectedRasterFile,
@@ -616,7 +638,8 @@ export function MapProvider({ children }: MapProviderProps) {
     // New functions for legend generation
     setLegendCount,
     generateRasterLegends,
-    resetProcessedRaster
+    resetProcessedRaster,
+    setlayerOpacity,
   };
 
   return (

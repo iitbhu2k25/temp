@@ -57,7 +57,6 @@ def generate_dynamic_sld(raster_path, num_classes, output_sld_path=None, color_r
     print(f"SLD file created: {output_sld_path}")
     return output_sld_path
 
-
 def generate_colors(num_classes, color_ramp='blue_to_red'):
     """Generate a list of color hex codes for the specified number of classes"""
     colors = []
@@ -157,7 +156,6 @@ def generate_colors(num_classes, color_ramp='blue_to_red'):
         
     return colors
 
-
 def generate_sld_xml(intervals, colors):
     """Generate the SLD XML content with the specified intervals and colors"""
     # Create the root element
@@ -218,7 +216,6 @@ def generate_sld_xml(intervals, colors):
     pretty_xml = '<?xml version="1.0" encoding="utf-8"?>\n' + '\n'.join(pretty_xml.split('\n')[1:])
     
     return pretty_xml
-
 
 def apply_sld_to_layer(workspace_name, layer_name, sld_content, sld_name=None):
     
@@ -388,12 +385,7 @@ def publish_geotiff(workspace_name, store_name, geotiff_path):
         "upload_status": response.status_code
     }
 
-def raster_download(workspace_name,store_name,layer_name):
-    print("workspace",workspace_name)
-    print("store_name",store_name)
-    print("layer_name",layer_name)
-    print(settings.BASE_DIR)
-    
+def raster_download(workspace_name,store_name,layer_name,legends):
     geoserver_wcs_url = (
                 "http://geoserver:8080/geoserver/wcs"
                 f"?service=WCS"
@@ -414,7 +406,7 @@ def raster_download(workspace_name,store_name,layer_name):
             f.write(r.content)
     
     sld=generate_dynamic_sld(raster_path=file_path, 
-                                   num_classes=5, 
+                                   num_classes=legends, 
                                    color_ramp='blue_to_red')
     success = apply_sld_to_layer(workspace_name, layer_name, sld)
     if success:

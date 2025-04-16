@@ -63,7 +63,8 @@ class rasters_legends(APIView):
         workspace=request.data.get('workspace')
         storename=request.data.get('storename')
         layername=request.data.get('layername')
-        if raster_download(workspace_name=workspace,store_name=storename,layer_name=layername):
+        legends=request.data.get('legendCount')
+        if raster_download(workspace_name=workspace,store_name=storename,layer_name=layername,legends=legends):
             return Response(status=status.HTTP_200_OK)
         return Response(status=status.HTTP_400_BAD_REQUEST)
     

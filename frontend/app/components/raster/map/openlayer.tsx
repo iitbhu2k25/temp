@@ -38,7 +38,8 @@ const MapComponent = () => {
   const {
     currentRasterLayer,
     pixelInfo,
-    setPixelInfo
+    setPixelInfo,
+    layerOpacity,
   } = useMapContext();
   
   const mapRef = useRef<HTMLDivElement>(null);
@@ -80,18 +81,7 @@ const MapComponent = () => {
       const layerId = currentRasterLayer.id;
       const layer = layersRef.current[layerId];
       
-      if (layer) {
-        // In a real implementation, you would get actual pixel values here
-        // For now, we'll use a mock implementation
-        setPixelInfo(prev => ({
-          ...prev,
-          [layerId]: {
-            coords: coordinate as [number, number],
-            value: Math.random() * 100, // Mock value
-            loading: false
-          }
-        }));
-      }
+     
     });
     
     return () => {
@@ -137,6 +127,7 @@ const MapComponent = () => {
         
         console.log(`Creating WMS layer with URL: ${currentRasterLayer.url}, Layer: ${fullLayerName}`);
         
+        console.log("layer",layerOpacity);
         try {
           newLayer = new ImageLayer({
             source: new ImageWMS({
@@ -150,7 +141,7 @@ const MapComponent = () => {
               serverType: 'geoserver'
             }),
             visible: true, // Force to visible for debugging
-            opacity: currentRasterLayer.opacity ?? 1.0
+            opacity: layerOpacity/100
           });
           
           console.log(`WMS layer created successfully`);
@@ -189,7 +180,7 @@ const MapComponent = () => {
     } else {
       console.warn("Current layer missing URL or ID:", currentRasterLayer);
     }
-  }, [map, currentRasterLayer]);
+  }, [map, currentRasterLayer, layerOpacity]);
   
   return (
     <div 
