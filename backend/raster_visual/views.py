@@ -59,3 +59,8 @@ class rasters_file(APIView):
             import traceback
             traceback.print_exc()
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class rasters_legends(APIView):
+    def post(self,request):
+        print(request.data)
+    

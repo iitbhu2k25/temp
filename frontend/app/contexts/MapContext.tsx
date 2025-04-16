@@ -61,7 +61,7 @@ interface MapContextType {
   rasterFiles: RasterFile[];
   selectedOrganisation: string;
   selectedRasterFile: string;
-  selectedRasterLayers: RasterLayerProps[];
+  currentRasterLayer: RasterLayerProps | null;
   pixelInfo: Record<string, PixelInfoValue>;
   isOrganisationsLoading: boolean;
   isRasterFilesLoading: boolean;
@@ -80,9 +80,9 @@ interface MapContextType {
   setPixelInfo: (info: Record<string, PixelInfoValue>) => void;
   handleOrganisationSelect: (organisationName: string) => void;
   handleRasterFileSelect: (rasterFileId: string) => void;
-  toggleRasterVisibility: (rasterId: string) => void;
-  updateRasterOpacity: (rasterId: string, opacity: number) => void;
-  removeRasterLayer: (rasterId: string) => void;
+  toggleRasterVisibility: () => void;
+  updateRasterOpacity: (opacity: number) => void;
+  removeRasterLayer: () => void;
   setOrganisationDropdownOpen: (isOpen: boolean) => void;
   setRasterFileDropdownOpen: (isOpen: boolean) => void;
   getOrganisationName: (id: string) => string;
@@ -123,7 +123,7 @@ export function MapProvider({ children }: MapProviderProps) {
   // State for selected items
   const [selectedOrganisation, setSelectedOrganisation] = useState<string>('');
   const [selectedRasterFile, setSelectedRasterFile] = useState<string>('');
-  const [selectedRasterLayers, setSelectedRasterLayers] = useState<RasterLayerProps[]>([]);
+  const [currentRasterLayer, setCurrentRasterLayer] = useState<RasterLayerProps | null>(null);
   const [pixelInfo, setPixelInfo] = useState<Record<string, PixelInfoValue>>({});
 
   // UI state
@@ -166,24 +166,22 @@ export function MapProvider({ children }: MapProviderProps) {
 
         const coordinate = map.getCoordinateFromPixel(event.pixel);
         
-        // Collect pixel info for each visible layer
-        selectedRasterLayers.forEach(layer => {
-          if (layer.visible && layer.id) {
-            const olLayer = mapRefs.current.layers[layer.id];
-            if (olLayer) {
-              // In a real implementation, you would get actual pixel values
-              // For now, we'll use a mock implementation
-              setPixelInfo(prev => ({
-                ...prev,
-                [layer.id]: {
-                  coords: coordinate as [number, number],
-                  value: Math.random() * 100, // Mock value
-                  loading: false
-                }
-              }));
-            }
+        // Get pixel info for the current raster layer
+        if (currentRasterLayer && currentRasterLayer.visible && currentRasterLayer.id) {
+          const olLayer = mapRefs.current.layers[currentRasterLayer.id];
+          if (olLayer) {
+            // In a real implementation, you would get actual pixel values
+            // For now, we'll use a mock implementation
+            setPixelInfo(prev => ({
+              ...prev,
+              [currentRasterLayer.id]: {
+                coords: coordinate as [number, number],
+                value: Math.random() * 100, // Mock value
+                loading: false
+              }
+            }));
           }
-        });
+        }
       });
     }
 
@@ -194,93 +192,101 @@ export function MapProvider({ children }: MapProviderProps) {
         mapRefs.current.map = null;
       }
     };
-  }, []);
+  }, [currentRasterLayer]);
 
-  // Sync raster layers with OpenLayers when they change
+  // Sync current raster layer with OpenLayers when it changes
   useEffect(() => {
     const map = mapRefs.current.map;
     if (!map) return;
 
-    // This effect syncs the state of selectedRasterLayers with the actual OpenLayers layers
-    selectedRasterLayers.forEach(layer => {
-      const olLayer = mapRefs.current.layers[layer.id];
+    // First remove any layers not matching the current layer
+    if (currentRasterLayer) {
+      Object.keys(mapRefs.current.layers).forEach(layerId => {
+        if (layerId !== currentRasterLayer.id) {
+          // Remove layer from map
+          map.removeLayer(mapRefs.current.layers[layerId]);
+          // Remove reference
+          delete mapRefs.current.layers[layerId];
+        }
+      });
+    } else {
+      // If there's no current layer, remove all layers
+      Object.keys(mapRefs.current.layers).forEach(layerId => {
+        map.removeLayer(mapRefs.current.layers[layerId]);
+        delete mapRefs.current.layers[layerId];
+      });
+      return; // Exit early if no current layer
+    }
+
+    const layer = currentRasterLayer;
+    const olLayer = layer.id ? mapRefs.current.layers[layer.id] : null;
+    
+    if (olLayer) {
+      // Update existing layer properties
+      olLayer.setVisible(layer.visible);
+      olLayer.setOpacity(layer.opacity || 1.0);
+    } else if (layer.url) {
+      let newOlLayer;
       
-      if (olLayer) {
-        // Update existing layer properties
-        olLayer.setVisible(layer.visible);
-        olLayer.setOpacity(layer.opacity || 1.0);
-      } else if (layer.url) {
-        let newOlLayer;
+      // Different handling based on layer type
+      if (layer.type === 'wms' || layer.layerName) {
+        // Create WMS layer for GeoServer
+        const workspace = layer.workspace || '';
+        const layerName = layer.layerName || layer.id;
         
-        // Different handling based on layer type
-        if (layer.type === 'wms' || layer.layerName) {
-          // Create WMS layer for GeoServer
-          const workspace = layer.workspace || '';
-          const layerName = layer.layerName || layer.id;
-          
-          // If workspace is provided, use it in the layer name
-          const fullLayerName = workspace ? `${workspace}:${layerName}` : layerName;
-          
+        // If workspace is provided, use it in the layer name
+        const fullLayerName = workspace ? `${workspace}:${layerName}` : layerName;
+        
+        newOlLayer = new ImageLayer({
+          source: new ImageWMS({
+            url: layer.url,
+            params: {
+              'LAYERS': fullLayerName,
+              'TILED': true,
+              'FORMAT': 'image/png'
+            },
+            ratio: 1,
+            serverType: 'geoserver'
+          }),
+          visible: layer.visible,
+          opacity: layer.opacity ?? 1.0
+        });
+        
+        console.log(`Created WMS layer for ${layer.name} with layer ${fullLayerName} connecting to GeoServer at ${layer.url}`);
+      } else {
+        // For GeoTIFF files (fallback)
+        try {
           newOlLayer = new ImageLayer({
-            source: new ImageWMS({
-              url: layer.url,
-              params: {
-                'LAYERS': fullLayerName,
-                'TILED': true,
-                'FORMAT': 'image/png'
-              },
-              ratio: 1,
-              serverType: 'geoserver'
+            source: new GeoTIFF({
+              sources: [{
+                url: layer.url
+              }]
             }),
             visible: layer.visible,
-            opacity: layer.opacity ?? 1.0
+            opacity: layer.opacity || 1.0
           });
           
-          console.log(`Created WMS layer for ${layer.name} with layer ${fullLayerName} connecting to GeoServer at ${layer.url}`);
-        } else {
-          // For GeoTIFF files (fallback)
-          try {
-            newOlLayer = new ImageLayer({
-              source: new GeoTIFF({
-                sources: [{
-                  url: layer.url
-                }]
-              }),
-              visible: layer.visible,
-              opacity: layer.opacity || 1.0
-            });
-            
-            console.log(`Created GeoTIFF layer for ${layer.name}`);
-          } catch (error) {
-            console.error(`Error creating GeoTIFF layer for ${layer.name}:`, error);
-            return; // Skip this layer
-          }
+          console.log(`Created GeoTIFF layer for ${layer.name}`);
+        } catch (error) {
+          console.error(`Error creating GeoTIFF layer for ${layer.name}:`, error);
+          return; // Skip this layer
         }
-        
-        // Set extent if available
-        if (layer.extent) {
-          newOlLayer.setExtent(layer.extent);
-        }
-        
-        // Add layer to map
-        map.addLayer(newOlLayer);
-        
-        // Store reference
+      }
+      
+      // Set extent if available
+      if (layer.extent) {
+        newOlLayer.setExtent(layer.extent);
+      }
+      
+      // Add layer to map
+      map.addLayer(newOlLayer);
+      
+      // Store reference
+      if (layer.id) {
         mapRefs.current.layers[layer.id] = newOlLayer;
       }
-    });
-
-    // Check for layers to remove (layers in refs but not in selectedRasterLayers)
-    const currentLayerIds = selectedRasterLayers.map(l => l.id);
-    Object.keys(mapRefs.current.layers).forEach(layerId => {
-      if (!currentLayerIds.includes(layerId)) {
-        // Remove layer from map
-        map.removeLayer(mapRefs.current.layers[layerId]);
-        // Remove reference
-        delete mapRefs.current.layers[layerId];
-      }
-    });
-  }, [selectedRasterLayers]);
+    }
+  }, [currentRasterLayer]);
 
   // Fetch Organisations on component mount
   useEffect(() => {
@@ -381,7 +387,7 @@ export function MapProvider({ children }: MapProviderProps) {
     }
     
     // Clear states
-    setSelectedRasterLayers([]);
+    setCurrentRasterLayer(null);
     setPixelInfo({});
     setOrganisationDropdownOpen(false);
     setProcessedRaster(null);
@@ -422,14 +428,11 @@ export function MapProvider({ children }: MapProviderProps) {
             workspace: 'GWM' // Adjust workspace as needed based on your GeoServer configuration
           };
 
-          // Make all other layers invisible
-          const updatedLayers = selectedRasterLayers.map(layer => ({
-            ...layer,
-            visible: false
-          }));
-
-          // Add this layer to existing layers
-          setSelectedRasterLayers([...updatedLayers, rasterLayer]);
+          // Set as the current layer (OpenLayers layers will be updated by the effect)
+          setCurrentRasterLayer(rasterLayer);
+          
+          // Clear any existing pixel info
+          setPixelInfo({});
         } else {
           // Fallback to previous implementation for non-GeoServer responses
           console.error('Invalid response format or GeoServer data not available');
@@ -443,63 +446,79 @@ export function MapProvider({ children }: MapProviderProps) {
     setProcessedRaster(null);
   };
 
-  // Toggle raster layer visibility
-  const toggleRasterVisibility = (rasterId: string) => {
-    setSelectedRasterLayers(prevLayers => {
-      // First make all layers invisible
-      const updatedLayers = prevLayers.map(layer => ({
-        ...layer,
-        visible: layer.id === rasterId ? !layer.visible : false
-      }));
+  // Toggle current layer visibility
+  const toggleRasterVisibility = () => {
+    if (!currentRasterLayer) return;
+    
+    // Toggle visibility
+    setCurrentRasterLayer(prevLayer => {
+      if (!prevLayer) return null;
       
-      // Update OpenLayers layers' visibility
-      updatedLayers.forEach(layer => {
-        const olLayer = mapRefs.current.layers[layer.id];
+      // Create new layer with toggled visibility
+      const updatedLayer = {
+        ...prevLayer,
+        visible: !prevLayer.visible
+      };
+      
+      // Directly update OpenLayers layer visibility
+      if (prevLayer.id) {
+        const olLayer = mapRefs.current.layers[prevLayer.id];
         if (olLayer) {
-          olLayer.setVisible(layer.visible);
+          olLayer.setVisible(updatedLayer.visible);
         }
-      });
+      }
       
-      return updatedLayers;
+      return updatedLayer;
     });
   };
 
-  // Update raster layer opacity
-  const updateRasterOpacity = (rasterId: string, opacity: number) => {
-    // First update the state
-    setSelectedRasterLayers(prevLayers => 
-      prevLayers.map(layer => 
-        layer.id === rasterId ? { ...layer, opacity } : layer
-      )
-    );
+  // Update current raster layer opacity
+  const updateRasterOpacity = (opacity: number) => {
+    if (!currentRasterLayer) return;
     
-    // Then directly update the OpenLayers layer
-    const olLayer = mapRefs.current.layers[rasterId];
-    if (olLayer) {
-      olLayer.setOpacity(opacity);
-    }
+    // Update the state
+    setCurrentRasterLayer(prevLayer => {
+      if (!prevLayer) return null;
+      
+      // Create new layer with updated opacity
+      const updatedLayer = {
+        ...prevLayer,
+        opacity
+      };
+      
+      // Directly update the OpenLayers layer
+      if (prevLayer.id) {
+        const olLayer = mapRefs.current.layers[prevLayer.id];
+        if (olLayer) {
+          olLayer.setOpacity(opacity);
+        }
+      }
+      
+      return updatedLayer;
+    });
   };
 
-  // Remove raster layer
-  const removeRasterLayer = (rasterId: string) => {
-    // First, remove from OpenLayers
+  // Remove current raster layer
+  const removeRasterLayer = () => {
+    if (!currentRasterLayer || !currentRasterLayer.id) return;
+    
+    // Remove from OpenLayers
     const map = mapRefs.current.map;
-    const layerToRemove = mapRefs.current.layers[rasterId];
+    const layerId = currentRasterLayer.id;
+    const layerToRemove = mapRefs.current.layers[layerId];
     
     if (map && layerToRemove) {
       map.removeLayer(layerToRemove);
-      delete mapRefs.current.layers[rasterId];
+      delete mapRefs.current.layers[layerId];
     }
     
-    // Then update the state
-    setSelectedRasterLayers(prevLayers => 
-      prevLayers.filter(layer => layer.id !== rasterId)
-    );
+    // Clear the current layer
+    setCurrentRasterLayer(null);
     
     // Also clear any pixel info for this layer
     setPixelInfo(prevInfo => {
       const newInfo = { ...prevInfo };
-      delete newInfo[rasterId];
+      delete newInfo[layerId];
       return newInfo;
     });
   };
@@ -535,7 +554,6 @@ export function MapProvider({ children }: MapProviderProps) {
         },
         body: JSON.stringify({
           rasterId: selectedRasterFile,
-          geo_organisation:,
           legendCount: legendCount
         }),
       });
@@ -557,7 +575,7 @@ export function MapProvider({ children }: MapProviderProps) {
         legends: data.legends || []
       });
       
-      // If the response includes a new raster layer, add it to the map
+      // If the response includes a new raster layer, set it as the current layer
       if (data.url) {
         const newRasterLayer: RasterLayerProps = {
           id: data.id,
@@ -568,13 +586,11 @@ export function MapProvider({ children }: MapProviderProps) {
           extent: data.extent || [68.0, 6.0, 98.0, 36.0] // Use returned extent or default to India
         };
         
-        // Make all other layers invisible and add the new one
-        const updatedLayers = selectedRasterLayers.map(layer => ({
-          ...layer,
-          visible: false
-        }));
+        // Set as the current layer (OpenLayers layers will be updated by the effect)
+        setCurrentRasterLayer(newRasterLayer);
         
-        setSelectedRasterLayers([...updatedLayers, newRasterLayer]);
+        // Clear any existing pixel info
+        setPixelInfo({});
       }
       
     } catch (error) {
@@ -597,7 +613,7 @@ export function MapProvider({ children }: MapProviderProps) {
     rasterFiles,
     selectedOrganisation,
     selectedRasterFile,
-    selectedRasterLayers,
+    currentRasterLayer,
     pixelInfo,
     isOrganisationsLoading,
     isRasterFilesLoading,

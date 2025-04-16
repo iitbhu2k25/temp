@@ -20,8 +20,11 @@ interface RasterLayerProps {
   url?: string;
   opacity?: number;
   name?: string;
-  workspace?: string;
+  extent?: [number, number, number, number];
+  type?: 'geotiff' | 'wms';
+  workspace?: string; 
   layerName?: string;
+  storeName?: string;
 }
 
 interface PixelInfoValue {
@@ -33,7 +36,7 @@ interface PixelInfoValue {
 
 const MapComponent = () => {
   const {
-    selectedRasterLayers,
+    currentRasterLayer,
     pixelInfo,
     setPixelInfo
   } = useMapContext();
@@ -41,10 +44,14 @@ const MapComponent = () => {
   const mapRef = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<Map | null>(null);
   const layersRef = useRef<Record<string, TileLayer<any> | ImageLayer<any>>>({});
+  const initializedRef = useRef<boolean>(false);
   
   // Initialize map
   useEffect(() => {
-    if (!mapRef.current || map) return;
+    if (!mapRef.current || initializedRef.current) return;
+    
+    console.log("Initializing OpenLayers map");
+    initializedRef.current = true;
     
     // Initialize the OpenLayers map
     const initialMap = new Map({
@@ -65,77 +72,124 @@ const MapComponent = () => {
     
     // Simple click handler
     initialMap.on('click', (event) => {
-      const [lon, lat] = toLonLat(event.coordinate);
+      if (!currentRasterLayer || !currentRasterLayer.visible || !currentRasterLayer.id) return;
       
-      // Just capture coordinates for now
-      for (const layerId in layersRef.current) {
-        const layer = layersRef.current[layerId];
-        
+      const coordinate = event.coordinate;
       
+      // Get value for the current layer
+      const layerId = currentRasterLayer.id;
+      const layer = layersRef.current[layerId];
+      
+      if (layer) {
+        // In a real implementation, you would get actual pixel values here
+        // For now, we'll use a mock implementation
+        setPixelInfo(prev => ({
+          ...prev,
+          [layerId]: {
+            coords: coordinate as [number, number],
+            value: Math.random() * 100, // Mock value
+            loading: false
+          }
+        }));
       }
     });
     
     return () => {
       initialMap.setTarget(undefined);
+      initializedRef.current = false;
     };
   }, [setPixelInfo]);
   
   
-  // Handle raster layers changes from context
+  // Handle raster layer changes from context
   useEffect(() => {
     if (!map) return;
     
-    // Remove layers that are no longer in the selected list
+    console.log("Current raster layer changed:", currentRasterLayer);
+    
+    // First, remove all existing WMS/raster layers (but keep the base OSM)
     Object.entries(layersRef.current).forEach(([id, layer]) => {
-      // Skip removing the default layer
-      if (id === 'default-wms-layer') return;
-      
-      if (!selectedRasterLayers.some(rasterLayer => rasterLayer.id === id)) {
-        map.removeLayer(layer);
-        delete layersRef.current[id];
-      }
+      console.log(`Removing layer with ID: ${id}`);
+      map.removeLayer(layer);
+      delete layersRef.current[id];
     });
     
-    // Add or update layers based on the selected list
-    selectedRasterLayers.forEach(rasterLayer => {
-      // Update existing layer properties if it exists
-      if (layersRef.current[rasterLayer.id]) {
-        const layer = layersRef.current[rasterLayer.id];
-        layer.setVisible(rasterLayer.visible);
-        layer.setOpacity(rasterLayer.opacity ?? 1.0);
-      } 
-      // Create new layer if it doesn't exist yet
-      else if (rasterLayer.url) {
+    // If there's no current layer, we're done after clearing
+    if (!currentRasterLayer) {
+      console.log("No current raster layer to display");
+      return;
+    }
+    
+    // Now add the current layer if it exists
+    if (currentRasterLayer.url && currentRasterLayer.id) {
+      console.log(`Creating new layer for ${currentRasterLayer.name || currentRasterLayer.id}`);
+      
+      let newLayer;
+      
+      // Different handling based on layer type
+      if (currentRasterLayer.type === 'wms' || currentRasterLayer.layerName) {
         // Create WMS layer for GeoServer
-        const workspace = rasterLayer.workspace || '';
-        const layerName = rasterLayer.layerName || rasterLayer.id;
+        const workspace = currentRasterLayer.workspace || '';
+        const layerName = currentRasterLayer.layerName || currentRasterLayer.id;
         
         // If workspace is provided, use it in the layer name
         const fullLayerName = workspace ? `${workspace}:${layerName}` : layerName;
         
-        const layer = new ImageLayer({
-          source: new ImageWMS({
-            url: rasterLayer.url,
-            params: {
-              'LAYERS': fullLayerName,
-              'TILED': true,
-              'FORMAT': 'image/png'
-            },
-            ratio: 1,
-            serverType: 'geoserver'
-          }),
-          visible: rasterLayer.visible,
-          opacity: rasterLayer.opacity ?? 1.0
-        });
+        console.log(`Creating WMS layer with URL: ${currentRasterLayer.url}, Layer: ${fullLayerName}`);
         
-        // Store the layer reference
-        layersRef.current[rasterLayer.id] = layer;
-        
-        // Add layer to map
-        map.addLayer(layer);
+        try {
+          newLayer = new ImageLayer({
+            source: new ImageWMS({
+              url: currentRasterLayer.url,
+              params: {
+                'LAYERS': fullLayerName,
+                'TILED': true,
+                'FORMAT': 'image/png'
+              },
+              ratio: 1,
+              serverType: 'geoserver'
+            }),
+            visible: true, // Force to visible for debugging
+            opacity: currentRasterLayer.opacity ?? 1.0
+          });
+          
+          console.log(`WMS layer created successfully`);
+        } catch (error) {
+          console.error("Error creating WMS layer:", error);
+          return;
+        }
+      } else {
+        console.warn("Unsupported layer type - GeoTIFF not implemented in this component");
+        return;
       }
-    });
-  }, [map, selectedRasterLayers]);
+      
+      // Set extent if available
+      if (currentRasterLayer.extent) {
+        console.log(`Setting layer extent:`, currentRasterLayer.extent);
+        newLayer.setExtent(currentRasterLayer.extent);
+      }
+      
+      // Store the layer reference
+      layersRef.current[currentRasterLayer.id] = newLayer;
+      
+      // Add layer to map
+      map.addLayer(newLayer);
+      console.log(`Layer added to map: ${currentRasterLayer.id}`);
+      
+      // Force a map render
+      map.renderSync();
+      
+      // Zoom to layer extent if available
+      if (currentRasterLayer.extent) {
+        map.getView().fit(currentRasterLayer.extent, {
+          padding: [20, 20, 20, 20],
+          duration: 1000
+        });
+      }
+    } else {
+      console.warn("Current layer missing URL or ID:", currentRasterLayer);
+    }
+  }, [map, currentRasterLayer]);
   
   return (
     <div 
