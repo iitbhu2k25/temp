@@ -5,9 +5,7 @@ from rest_framework import status
 from django.http import FileResponse, Http404
 from django.conf import settings
 import os
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
-from GWM.service import create_workspace,publish_geotiff
+from GWM.service import create_workspace,publish_geotiff,raster_download
 import time
 import json
 
@@ -62,5 +60,11 @@ class rasters_file(APIView):
 
 class rasters_legends(APIView):
     def post(self,request):
-        print(request.data)
+        workspace=request.data.get('workspace')
+        storename=request.data.get('storename')
+        layername=request.data.get('layername')
+        raster_download(workspace_name=workspace,store_name=storename,layer_name=layername)
+        # make the service to downoad the rasterfile
+        # then make the server to make the change the raster file
+        # make the service to upload the raster file 
     

@@ -6,7 +6,10 @@ from django.conf import settings
 geoserver_url = settings.GEOSERVER_URL
 username = settings.GEOSERVER_USERNAME
 password = settings.GEOSERVER_PASSWORD  
-
+geoserver_extenal_url=settings.GEOSERVER_EX_URL
+wcs_url=f"{geoserver_extenal_url}+/wcs"
+input_path=f"{settings.BASE_DIR}"+"/temp/input"
+output_path=f"{settings.BASE_DIR}"+"/temp/output"
 
 def create_workspace(workspace_name):
     # First check if workspace already exists
@@ -39,7 +42,6 @@ def create_workspace(workspace_name):
     else:
         print(f"Failed to create workspace: {response.status_code}, {response.text}")
         return False
-    
 
 def publish_geotiff(workspace_name, store_name, geotiff_path):
     # Upload the file directly (this will auto-create a layer)
@@ -97,3 +99,32 @@ def publish_geotiff(workspace_name, store_name, geotiff_path):
         "store_name": store_name,
         "upload_status": response.status_code
     }
+
+def raster_download(workspace_name,store_name,layer_name):
+    print("workspace",workspace_name)
+    print("store_name",store_name)
+    print("layer_name",layer_name)
+    print(settings.BASE_DIR)
+    
+    geoserver_wcs_url = (
+                "http://geoserver:8080/geoserver/wcs"
+                f"?service=WCS"
+                f"&version=2.0.1"
+                f"&request=GetCoverage"
+                f"&coverageId={layer_name}"
+                f"&format=image/geotiff"
+            )
+    r = requests.get(geoserver_wcs_url
+                , auth=HTTPBasicAuth(username, password),
+                cookies={})
+    print(r.status_code)
+    if r.status_code == 200:
+        filename = layer_name.split(":")[-1] + ".tif"
+        os.makedirs(input_path, exist_ok=True)
+        file_path = os.path.join(input_path, filename)
+        with open(file_path, "wb") as f:
+            f.write(r.content)
+
+    pass
+def raster_legends():
+    pass

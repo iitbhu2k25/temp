@@ -546,15 +546,19 @@ export function MapProvider({ children }: MapProviderProps) {
     setLegendGenerationError(null);
     
     try {
+      console.log('raster',currentRasterLayer);
       // Call backend API to generate legends
-      const response = await fetch('http://localhost:9000/api/raster_visual/rasters/generate-legends', {
+      const response = await fetch('http://localhost:9000/api/raster_visual/rasters/generate-legends/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           rasterId: selectedRasterFile,
-          legendCount: legendCount
+          legendCount: legendCount,
+          workspace: currentRasterLayer?.workspace,
+          storename: currentRasterLayer?.storeName,
+          layername: currentRasterLayer?.layerName,          
         }),
       });
       
