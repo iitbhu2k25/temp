@@ -528,14 +528,14 @@ export function MapProvider({ children }: MapProviderProps) {
     
     try {
       // Call backend API to generate legends
-      const response = await fetch('http://localhost:9000/api/raster_visual/generate-legends', {
+      const response = await fetch('http://localhost:9000/api/raster_visual/rasters/generate-legends', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           rasterId: selectedRasterFile,
-          organisationId: selectedOrganisation,
+          geo_organisation:,
           legendCount: legendCount
         }),
       });
