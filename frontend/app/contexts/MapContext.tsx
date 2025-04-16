@@ -565,46 +565,15 @@ export function MapProvider({ children }: MapProviderProps) {
       if (!response.ok) {
         throw new Error(`Failed to generate legends: ${response.statusText}`);
       }
-      
-      const data = await response.json();
-      console.log('Generated legends response:', data);
-      
-      // Set the processed raster with generated legends
-      setProcessedRaster({
-        id: data.id || `processed-${Date.now()}`, // Use returned ID or generate temporary one
-        name: data.name || `${getRasterFileName(selectedRasterFile)} (Processed)`,
-        url: data.url,
-        legendCount: legendCount,
-        createdAt: data.createdAt || new Date().toISOString(),
-        legends: data.legends || []
-      });
-      
-      // If the response includes a new raster layer, set it as the current layer
-      if (data.url) {
-        const newRasterLayer: RasterLayerProps = {
-          id: data.id,
-          name: data.name || `${getRasterFileName(selectedRasterFile)} (Processed)`,
-          visible: true,
-          url: data.url,
-          opacity: 1.0,
-          extent: data.extent || [68.0, 6.0, 98.0, 36.0] // Use returned extent or default to India
-        };
-        
-        // Set as the current layer (OpenLayers layers will be updated by the effect)
-        setCurrentRasterLayer(newRasterLayer);
-        
+              
         // Clear any existing pixel info
         setPixelInfo({});
       }
-      
-    } catch (error) {
-      console.error('Error generating legends:', error);
-      setLegendGenerationError(error instanceof Error ? error.message : 'Failed to generate legends');
-    } finally {
-      setIsProcessingLegends(false);
-    }
-  };
-  
+      finally {
+        setIsProcessingLegends(false);
+      }
+    };
+        
   // Reset processed raster
   const resetProcessedRaster = () => {
     setProcessedRaster(null);

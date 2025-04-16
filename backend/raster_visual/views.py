@@ -63,8 +63,7 @@ class rasters_legends(APIView):
         workspace=request.data.get('workspace')
         storename=request.data.get('storename')
         layername=request.data.get('layername')
-        raster_download(workspace_name=workspace,store_name=storename,layer_name=layername)
-        # make the service to downoad the rasterfile
-        # then make the server to make the change the raster file
-        # make the service to upload the raster file 
+        if raster_download(workspace_name=workspace,store_name=storename,layer_name=layername):
+            return Response(status=status.HTTP_200_OK)
+        return Response(status=status.HTTP_400_BAD_REQUEST)
     

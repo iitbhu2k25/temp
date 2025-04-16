@@ -5,9 +5,9 @@ from django.conf import settings
 import rasterio
 import numpy as np
 import colorsys
-import os
 from xml.dom import minidom
 from xml.etree import ElementTree as ET
+from datetime import datetime
 
 geoserver_url = settings.GEOSERVER_URL
 username = settings.GEOSERVER_USERNAME
@@ -219,100 +219,20 @@ def generate_sld_xml(intervals, colors):
     
     return pretty_xml
 
-def apply_sld_to_layer(workspace_name, layer_name, sld_content, sld_name=None,
-                       intervals=8, method="equalInterval", ramp="jet"):
+
+def apply_sld_to_layer(workspace_name, layer_name, sld_content, sld_name=None):
     
     if sld_name is None:
-        sld_name = layer_name.split(":")[-1]
+        sld_name = layer_name+datetime.now().strftime("%Y%m%d%H%M%S")
     
-    # Get layer name without workspace prefix for the classify service
-    short_layer_name = layer_name.split(":")[-1]
-    
-    # Base URLs
-    geoserver_url = "http://geoserver:8080/geoserver"
-    
-    # Try different possible URL patterns for the classify service
-    possible_urls = [
-        f"{geoserver_url}/rest/sldservice/{workspace_name}/{short_layer_name}/classify.xml",
-        f"{geoserver_url}/sldservice/{workspace_name}/{short_layer_name}/classify.xml",
-        f"{geoserver_url}/rest/sldservice/classify.xml?layer={layer_name}",
-        f"{geoserver_url}/sldservice/classify.xml?layer={layer_name}",
-        f"{geoserver_url}/rest/sldservice/classify/{layer_name}.xml"
-    ]
-    
-    # Add parameters to each URL
-    query_params = (
-        f"attribute=1"  # Use first band for raster
-        f"&intervals={intervals}"
-        f"&method={method}"
-        f"&ramp={ramp}"
-        f"&fullSLD=true"  # Get complete SLD, not just rules
-        f"&continuous=true"  # For smooth raster rendering
-    )
-    
-    # Try each URL until one works
-    sld_content = None
-    successful_url = None
-    
-    for base_url in possible_urls:
-        url = f"{base_url}?{query_params}" if "?" not in base_url else f"{base_url}&{query_params}"
-        print(f"Trying URL: {url}")
-        
-        classify_response = requests.get(
-            url,
-            auth=HTTPBasicAuth(username, password),
-            headers={"Accept": "application/xml"}
-        )
-        
-        print(f"Response status: {classify_response.status_code}")
-        
-        if classify_response.status_code == 200:
-            sld_content = classify_response.content
-            successful_url = url
-            print(f"Found working URL: {successful_url}")
-            break
-        else:
-            print(f"URL not working: {classify_response.status_code}")
-    
-    if sld_content is None:
-        print("Could not find the correct URL for the classify service.")
-        print("Let's fall back to a manual SLD creation approach...")
-        
         # Create a simple SLD for raster with the jet color ramp manually
-        sld_content = f"""<?xml version="1.0" encoding="ISO-8859-1"?>
-<StyledLayerDescriptor version="1.0.0" 
-    xmlns="http://www.opengis.net/sld" 
-    xmlns:ogc="http://www.opengis.net/ogc" 
-    xmlns:xlink="http://www.w3.org/1999/xlink" 
-    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
-    xsi:schemaLocation="http://www.opengis.net/sld StyledLayerDescriptor.xsd">
-  <NamedLayer>
-    <Name>Raster Classification</Name>
-    <UserStyle>
-      <Title>Jet Color Ramp</Title>
-      <FeatureTypeStyle>
-        <Rule>
-          <RasterSymbolizer>
-            <ColorMap type="ramp">
-              <ColorMapEntry color="#000080" quantity="0" label="0"/>
-              <ColorMapEntry color="#0000FF" quantity="32" label="32"/>
-              <ColorMapEntry color="#00FFFF" quantity="64" label="64"/>
-              <ColorMapEntry color="#00FF00" quantity="96" label="96"/>
-              <ColorMapEntry color="#FFFF00" quantity="128" label="128"/>
-              <ColorMapEntry color="#FF0000" quantity="196" label="196"/>
-              <ColorMapEntry color="#800000" quantity="255" label="255"/>
-            </ColorMap>
-          </RasterSymbolizer>
-        </Rule>
-      </FeatureTypeStyle>
-    </UserStyle>
-  </NamedLayer>
-</StyledLayerDescriptor>""".encode('utf-8')
+        new_sld_content=""
+        with open(sld_content, "r") as f:
+            new_sld_content = f.read()
     
-    # Now create the style with this SLD
     styles_url = f"{geoserver_url}/rest/workspaces/{workspace_name}/styles"
     
-    # First create style metadata
+   
     style_data = {
         "style": {
             "name": sld_name,
@@ -345,7 +265,7 @@ def apply_sld_to_layer(workspace_name, layer_name, sld_content, sld_name=None,
     print(f"Uploading SLD content for style: {sld_name}")
     upload_response = requests.put(
         style_url,
-        data=sld_content,
+        data=new_sld_content,
         auth=HTTPBasicAuth(username, password),
         headers={"Content-Type": "application/vnd.ogc.sld+xml"}
     )
@@ -356,30 +276,27 @@ def apply_sld_to_layer(workspace_name, layer_name, sld_content, sld_name=None,
     
     print(f"Successfully uploaded SLD content")
     
-    # Associate style with layer
-    layer_url = f"{geoserver_url}/rest/workspaces/{workspace_name}/layers/{short_layer_name}"
-    
-    layer_data = {
-        "layer": {
-            "defaultStyle": {
-                "name": f"{workspace_name}:{sld_name}"
-            }
+    # Now apply the style to the layer
+    layer_url = f"{geoserver_url}/rest/workspaces/{workspace_name}/layers/{layer_name}"
+    payload = {
+    "layer": {
+        "defaultStyle": {
+            "name": sld_name
         }
     }
-    
-    layer_update_response = requests.put(
+    }
+
+    apply_response = requests.put(
         layer_url,
-        json=layer_data,
+        json=payload,  # This will serialize the payload as JSON
         auth=HTTPBasicAuth(username, password),
         headers={"Content-Type": "application/json"}
     )
-    
-    if layer_update_response.status_code not in [200, 201]:
-        print(f"Failed to associate style with layer: {layer_update_response.status_code}, {layer_update_response.text}")
-        return False
         
-    print(f"Successfully associated style with layer: {layer_name}")
-    
+    if apply_response.status_code not in [200, 201]:
+        print(f"Failed to apply style to layer: {apply_response.status_code}, {apply_response.text}")
+        return False
+    print(f"Successfully applied style to layer")
     return True
 
 def create_workspace(workspace_name):
@@ -499,10 +416,11 @@ def raster_download(workspace_name,store_name,layer_name):
     sld=generate_dynamic_sld(raster_path=file_path, 
                                    num_classes=5, 
                                    color_ramp='blue_to_red')
-    print("sld is done")
     success = apply_sld_to_layer(workspace_name, layer_name, sld)
     if success:
         print(f"Successfully applied SLD to layer {layer_name}")
+        return True
     else:
         print(f"Failed to apply SLD to layer {layer_name}")
-    pass
+        return False
+    
